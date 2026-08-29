@@ -26,6 +26,7 @@ sequenceOf(
     "api",
     "native",
     "proxy",
+    "protocol-conformance",
 ).forEach {
     val project = ":velocity-$it"
     include(project)
