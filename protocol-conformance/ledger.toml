@@ -1,0 +1,32 @@
+# Expected results for the vanilla conformance suite (see
+# docs/superpowers/specs/2026-10-25-vanilla-conformance-design.md, section 7).
+#
+# [[expect]] marks a failure as known. It matches failures whose signature starts with
+# `signature`, in cells selected by `proxy`, `scenario` and `versions` (all default to "*").
+# A matching failure is reported but does not fail the run; an expectation that stops matching
+# fails the run as an unexpected pass, so a fix has to move its entry out of this file.
+#
+# [[unreachable]] records a packet the harness cannot provoke from a vanilla server and a
+# scripted client, so the coverage report only lists genuine gaps.
+#
+# Version ranges: "*", "1.20.4", ">=1.20.2", "<1.13", "1.8..1.12.2", or a comma-separated list.
+
+[[expect]]
+proxy = "velocity"
+versions = ">=1.19"
+signature = "MISMATCH S->C PLAY minecraft:commands"
+detail = "sent minecraft:resource_or_tag delivered minecraft:resource"
+reason = """\
+  Velocity re-encodes every minecraft:resource_or_tag argument as minecraft:resource. Both are \
+  registered against RegistryKeyArgument.class in ArgumentPropertyRegistry, so the class-to-id \
+  map keeps whichever is registered last. Clients then reject tag syntax (#minecraft:...) in \
+  /locate, /fillbiome and /execute if biome before the command is ever sent."""
+
+[[expect]]
+proxy = "velocity"
+signature = "REORDERED C->S PLAY minecraft:chat"
+flaky = true
+reason = """\
+  Velocity forwards chat messages and commands only once PlayerChatEvent / CommandExecuteEvent \
+  have completed asynchronously, so serverbound packets the client sent afterwards can reach the \
+  backend first. Timing-dependent, hence flaky."""

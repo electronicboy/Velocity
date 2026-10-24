@@ -2,6 +2,15 @@ plugins {
     `java-library`
 }
 
+// The main source set is the live harness: a scripted client, a tap relay, a vanilla server runner
+// and a differ. It deliberately has no dependency on the proxy, so that a Velocity bug can never
+// validate itself, and so that the same harness can be pointed at any proxy jar (Waterfall
+// included). Its unit tests are offline and run as part of `check`.
+dependencies {
+    implementation(rootProject.libs.gson)
+    implementation(rootProject.libs.nightconfig)
+}
+
 // Conformance checks live in their own source set so that they are never pulled into `check` or
 // `build`. They pull vanilla server jars from Mojang and run the data generator over each, so they
 // are driven from a scheduled workflow rather than the build.
@@ -73,4 +82,70 @@ tasks.register<Test>("conformanceTest") {
     useJUnitPlatform()
     reports.junitXml.required = true
     systemProperty("velocity.conformance.data", extractedData.get().asFile.absolutePath)
+}
+
+// The live suite. Vanilla servers run on the smallest JDK at least as new as the version asks for,
+// so every JDK a supported version might need is resolved through toolchains and handed over.
+val harnessJdks = listOf(17, 21, 25).map { major ->
+    javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(major) }
+}
+
+// One representative Minecraft version per protocol Velocity supports, computed from
+// ProtocolVersion so a new constant is picked up without touching the build.
+val listSupportedVersions = tasks.register<JavaExec>("listSupportedVersions") {
+    description = "Writes the Minecraft versions the vanilla conformance suite covers by default."
+    group = "verification"
+    classpath = conformance.runtimeClasspath
+    mainClass = "com.velocitypowered.proxy.conformance.ListSupportedVersions"
+    val output = layout.buildDirectory.file("supported-versions.txt")
+    args(output.get().asFile.absolutePath)
+    outputs.file(output)
+}
+
+tasks.register<JavaExec>("vanillaConformance") {
+    description = "Runs the vanilla transparency suite against the proxy built from this tree."
+    group = "verification"
+    val proxyJar = project(":velocity-proxy").tasks.named<Jar>("shadowJar").flatMap { it.archiveFile }
+    dependsOn(listSupportedVersions)
+    inputs.file(proxyJar)
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass = "com.velocitypowered.proxy.conformance.harness.Main"
+    javaLauncher = harnessJdks.last()
+    // Never up to date: the whole point is to notice Mojang, or the proxy, moving.
+    outputs.upToDateWhen { false }
+
+    val work = layout.buildDirectory.dir("conformance-work")
+    val report = layout.buildDirectory.dir("conformance-report")
+    val versions = providers.gradleProperty("conformance.versions")
+        .orElse(listSupportedVersions.map { "@" + it.outputs.files.singleFile.absolutePath })
+    argumentProviders.add(CommandLineArgumentProvider {
+        val args = mutableListOf(
+            "--proxy-jar", proxyJar.get().asFile.absolutePath,
+            "--proxy-kind", "velocity",
+            "--versions", versions.get(),
+            "--work", work.get().asFile.absolutePath,
+            "--report", report.get().asFile.absolutePath,
+            "--ledger", file("ledger.toml").absolutePath,
+            "--cache", jarCache.get().asFile.absolutePath,
+            "--jdks", harnessJdks.joinToString(File.pathSeparator) {
+                it.get().metadata.installationPath.asFile.absolutePath
+            },
+        )
+        if (providers.gradleProperty("conformance.gate").isPresent) {
+            args += "--gate"
+        }
+        args
+    })
+}
+
+// A self-contained harness jar, for running the suite against a proxy built elsewhere (Waterfall).
+tasks.register<Jar>("harnessJar") {
+    description = "Assembles a standalone, runnable jar of the vanilla conformance harness."
+    group = "build"
+    archiveClassifier = "harness"
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest.attributes["Main-Class"] = "com.velocitypowered.proxy.conformance.harness.Main"
+    from(sourceSets.main.get().output)
+    from(configurations.runtimeClasspath.map { cp -> cp.map { if (it.isDirectory) it else zipTree(it) } })
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "module-info.class")
 }
