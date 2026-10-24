@@ -18,9 +18,15 @@
 package com.velocitypowered.proxy.conformance.harness.diff;
 
 import com.velocitypowered.proxy.conformance.harness.trace.TraceEvent;
+import com.velocitypowered.proxy.conformance.harness.wire.Buf;
 import com.velocitypowered.proxy.conformance.harness.wire.Direction;
 import com.velocitypowered.proxy.conformance.harness.wire.Phase;
+import com.velocitypowered.proxy.conformance.harness.wire.Protocols;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -65,7 +71,87 @@ final class VelocityRules extends CommonRules {
           + "favicon via ProxyPingEvent) and keeps the backend's secure-chat flag "
           + "(connection/backend/BackendPlaySessionHandler#handle(ServerDataPacket))");
     }
+    if (source.dir() == Direction.CLIENTBOUND && source.phase() == Phase.PLAY
+        && "minecraft:login".equals(ctx.name(source)) && onlyOnlineModeDiffers(source, sink)) {
+      return Optional.of("Velocity sets the join game online-mode flag from the player's own "
+          + "authentication, not the offline backend's "
+          + "(connection/backend/TransitionSessionHandler: packet.setOnlineMode)");
+    }
+    if (source.dir() == Direction.CLIENTBOUND
+        && "minecraft:disconnect".equals(ctx.name(source))
+        && textOf(sink.payload()).containsAll(textOf(source.payload()))) {
+      return Optional.of("Velocity wraps a backend kick in its own message, keeping the "
+          + "backend's reason (KickedFromServerEvent, velocity.error.kicked-from-server)");
+    }
+    if (source.dir() == Direction.CLIENTBOUND && !ctx.atLeast(Protocols.V1_13)
+        && "minecraft:command_suggestions".equals(ctx.name(source))
+        && sameSuggestionsInAnyOrder(source.payload(), sink.payload())) {
+      return Optional.of("Velocity merges its own commands into pre-1.13 tab-complete responses "
+          + "and sorts the result; the backend's suggestions all arrive "
+          + "(connection/client/ClientPlaySessionHandler)");
+    }
     return Optional.empty();
+  }
+
+  /**
+   * True when the only difference is the online-mode flag, the second-to-last byte of join game
+   * from 26.x (followed by enforcesSecureChat), switching from offline to online.
+   */
+  private static boolean onlyOnlineModeDiffers(TraceEvent source, TraceEvent sink) {
+    byte[] a = source.payload();
+    byte[] b = sink.payload();
+    if (a.length != b.length || a.length < 2) {
+      return false;
+    }
+    int flag = a.length - 2;
+    return a[flag] == 0 && b[flag] == 1 && Arrays.equals(a, 0, flag, b, 0, flag)
+        && a[a.length - 1] == b[b.length - 1];
+  }
+
+  /**
+   * Extracts the printable runs of a chat component, whether JSON or NBT encoded.
+   */
+  private static Set<String> textOf(byte[] payload) {
+    Set<String> runs = new HashSet<>();
+    StringBuilder run = new StringBuilder();
+    for (byte b : payload) {
+      if (b >= 0x20 && b < 0x7F) {
+        run.append((char) b);
+      } else {
+        if (run.length() >= 6) {
+          runs.add(run.toString());
+        }
+        run.setLength(0);
+      }
+    }
+    if (run.length() >= 6) {
+      runs.add(run.toString());
+    }
+    // Structural keys appear in any component and say nothing about the reason.
+    runs.removeIf(r -> r.matches("[a-z_]+"));
+    return runs;
+  }
+
+  private static boolean sameSuggestionsInAnyOrder(byte[] source, byte[] sink) {
+    try {
+      return readSuggestions(source).equals(readSuggestions(sink));
+    } catch (RuntimeException e) {
+      return false;
+    }
+  }
+
+  private static List<String> readSuggestions(byte[] payload) {
+    Buf buf = new Buf(payload);
+    List<String> out = new ArrayList<>();
+    int count = buf.readVarInt();
+    for (int i = 0; i < count; i++) {
+      out.add(buf.readString());
+    }
+    if (buf.readableBytes() != 0) {
+      throw new IllegalArgumentException("trailing bytes");
+    }
+    Collections.sort(out);
+    return out;
   }
 
   @Override
@@ -97,12 +183,18 @@ final class VelocityRules extends CommonRules {
 
   @Override
   public Optional<String> tolerateReorder(RuleContext ctx, TraceEvent event) {
-    if (event.dir() == Direction.SERVERBOUND && event.phase() == Phase.CONFIGURATION
-        && "minecraft:custom_payload".equals(ctx.name(event))
-        && "minecraft:brand".equals(channelOf(event.payload()))) {
+    if (event.dir() != Direction.SERVERBOUND || event.phase() != Phase.CONFIGURATION) {
+      return Optional.empty();
+    }
+    String name = ctx.name(event);
+    // Whichever of the pair the alignment reports, the cause is the same: the brand is held back
+    // and the settings are replayed from what the client sent before the backend existed.
+    boolean brand = "minecraft:custom_payload".equals(name)
+        && "minecraft:brand".equals(channelOf(event.payload()));
+    if (brand || "minecraft:client_information".equals(name)) {
       return Optional.of("Velocity holds the client's brand until the backend finishes "
-          + "configuration, then replays it "
-          + "(connection/client/ClientConfigSessionHandler#handleBackendFinishUpdate)");
+          + "configuration and replays its stored settings on connect, so the two can swap "
+          + "(connection/client/ClientConfigSessionHandler)");
     }
     return Optional.empty();
   }

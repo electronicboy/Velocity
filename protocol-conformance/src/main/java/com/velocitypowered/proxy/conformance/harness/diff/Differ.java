@@ -20,16 +20,20 @@ package com.velocitypowered.proxy.conformance.harness.diff;
 import com.velocitypowered.proxy.conformance.harness.diff.Finding.Kind;
 import com.velocitypowered.proxy.conformance.harness.trace.TraceEvent;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
  * Aligns what one side sent with what the other side received and classifies every difference.
  *
- * <p>Alignment is greedy with a bounded lookahead: identical packets (same phase, id and bytes)
- * pair up in order; when the heads differ, the nearest re-synchronisation point within the window
- * wins, and anything skipped is unmatched. A head pair that cannot be re-synchronised is treated
+ * <p>Alignment is a patience diff: packets unique on both sides anchor it, and the gaps between
+ * anchors are walked greedily with a bounded lookahead, where the nearest re-synchronisation
+ * point wins and anything skipped is unmatched. A pair that cannot be re-synchronised is treated
  * as a substitution, which becomes a {@link Kind#MISMATCH} when both are the same packet type.
  * Unmatched packets with identical content on both sides are {@link Kind#REORDERED}.</p>
  */
@@ -64,48 +68,14 @@ public final class Differ {
    */
   public static Result compare(RuleContext ctx, List<TraceEvent> source, List<TraceEvent> sink,
       ProxyRules rules) {
-    List<Integer> unmatchedSource = new ArrayList<>();
-    List<Integer> unmatchedSink = new ArrayList<>();
-    List<int[]> substitutions = new ArrayList<>();
-    int matched = 0;
-
-    int i = 0;
-    int j = 0;
-    while (i < source.size() && j < sink.size()) {
-      TraceEvent s = source.get(i);
-      TraceEvent k = sink.get(j);
-      if (same(s, k)) {
-        matched++;
-        i++;
-        j++;
-        continue;
-      }
-      int sinkAhead = find(sink, j + 1, s);
-      int sourceAhead = find(source, i + 1, k);
-      if (sinkAhead >= 0 && (sourceAhead < 0 || sinkAhead - j <= sourceAhead - i)) {
-        // The receiver got extra packets before this one.
-        for (int x = j; x < sinkAhead; x++) {
-          unmatchedSink.add(x);
-        }
-        j = sinkAhead;
-      } else if (sourceAhead >= 0) {
-        // The sender's packets before this one never arrived (here, at least).
-        for (int x = i; x < sourceAhead; x++) {
-          unmatchedSource.add(x);
-        }
-        i = sourceAhead;
-      } else {
-        substitutions.add(new int[] {i, j});
-        i++;
-        j++;
-      }
-    }
-    for (; i < source.size(); i++) {
-      unmatchedSource.add(i);
-    }
-    for (; j < sink.size(); j++) {
-      unmatchedSink.add(j);
-    }
+    Alignment alignment = new Alignment();
+    align(source, 0, source.size(), sink, 0, sink.size(), alignment);
+    List<Integer> unmatchedSource = alignment.unmatchedSource;
+    List<Integer> unmatchedSink = alignment.unmatchedSink;
+    List<int[]> substitutions = alignment.substitutions;
+    final int matched = alignment.matched;
+    unmatchedSource.sort(null);
+    unmatchedSink.sort(null);
 
     List<Finding> findings = new ArrayList<>();
     for (int[] pair : substitutions) {
@@ -177,6 +147,156 @@ public final class Differ {
     return new Result(findings, matched);
   }
 
+  private static final class Alignment {
+    final List<Integer> unmatchedSource = new ArrayList<>();
+    final List<Integer> unmatchedSink = new ArrayList<>();
+    final List<int[]> substitutions = new ArrayList<>();
+    int matched;
+  }
+
+  /**
+   * Patience alignment: packets whose content occurs exactly once on each side anchor the
+   * alignment (longest increasing run of such pairs), and the gaps between anchors are aligned
+   * recursively, falling back to a greedy walk when a gap has no unique packets. Anchoring on
+   * unique content stops a repeated packet (a title reset, a keep-alive) far ahead from dragging
+   * the alignment off course.
+   */
+  private static void align(List<TraceEvent> source, int sourceFrom, int sourceTo, List<TraceEvent> sink,
+      int sinkFrom, int sinkTo, Alignment out) {
+    while (sourceFrom < sourceTo && sinkFrom < sinkTo && same(source.get(sourceFrom), sink.get(sinkFrom))) {
+      out.matched++;
+      sourceFrom++;
+      sinkFrom++;
+    }
+    while (sourceFrom < sourceTo && sinkFrom < sinkTo && same(source.get(sourceTo - 1), sink.get(sinkTo - 1))) {
+      out.matched++;
+      sourceTo--;
+      sinkTo--;
+    }
+    if (sourceFrom == sourceTo || sinkFrom == sinkTo) {
+      for (int i = sourceFrom; i < sourceTo; i++) {
+        out.unmatchedSource.add(i);
+      }
+      for (int j = sinkFrom; j < sinkTo; j++) {
+        out.unmatchedSink.add(j);
+      }
+      return;
+    }
+
+    Map<String, int[]> counts = new HashMap<>();
+    for (int i = sourceFrom; i < sourceTo; i++) {
+      int[] c = counts.computeIfAbsent(key(source.get(i)), k -> new int[] {0, 0, -1, -1});
+      c[0]++;
+      c[2] = i;
+    }
+    for (int j = sinkFrom; j < sinkTo; j++) {
+      int[] c = counts.get(key(sink.get(j)));
+      if (c != null) {
+        c[1]++;
+        c[3] = j;
+      }
+    }
+    List<int[]> pairs = new ArrayList<>();
+    for (int[] c : counts.values()) {
+      if (c[0] == 1 && c[1] == 1 && same(source.get(c[2]), sink.get(c[3]))) {
+        pairs.add(new int[] {c[2], c[3]});
+      }
+    }
+    pairs.sort((a, b) -> Integer.compare(a[0], b[0]));
+    List<int[]> anchors = longestIncreasing(pairs);
+    if (anchors.isEmpty()) {
+      greedy(source, sourceFrom, sourceTo, sink, sinkFrom, sinkTo, out);
+      return;
+    }
+    int s = sourceFrom;
+    int k = sinkFrom;
+    for (int[] anchor : anchors) {
+      align(source, s, anchor[0], sink, k, anchor[1], out);
+      out.matched++;
+      s = anchor[0] + 1;
+      k = anchor[1] + 1;
+    }
+    align(source, s, sourceTo, sink, k, sinkTo, out);
+  }
+
+  private static List<int[]> longestIncreasing(List<int[]> pairs) {
+    // Patience sorting over the sink indices, pairs already ordered by source index.
+    List<int[]> tails = new ArrayList<>();
+    int[] previous = new int[pairs.size()];
+    List<Integer> tailIndex = new ArrayList<>();
+    for (int p = 0; p < pairs.size(); p++) {
+      int value = pairs.get(p)[1];
+      int lo = 0;
+      int hi = tails.size();
+      while (lo < hi) {
+        int mid = (lo + hi) >>> 1;
+        if (tails.get(mid)[1] < value) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      previous[p] = lo > 0 ? tailIndex.get(lo - 1) : -1;
+      if (lo == tails.size()) {
+        tails.add(pairs.get(p));
+        tailIndex.add(p);
+      } else {
+        tails.set(lo, pairs.get(p));
+        tailIndex.set(lo, p);
+      }
+    }
+    List<int[]> out = new ArrayList<>();
+    for (int p = tailIndex.isEmpty() ? -1 : tailIndex.getLast(); p >= 0; p = previous[p]) {
+      out.add(pairs.get(p));
+    }
+    Collections.reverse(out);
+    return out;
+  }
+
+  private static void greedy(List<TraceEvent> source, int sourceFrom, int sourceTo, List<TraceEvent> sink,
+      int sinkFrom, int sinkTo, Alignment out) {
+    int i = sourceFrom;
+    int j = sinkFrom;
+    while (i < sourceTo && j < sinkTo) {
+      TraceEvent s = source.get(i);
+      TraceEvent k = sink.get(j);
+      if (same(s, k)) {
+        out.matched++;
+        i++;
+        j++;
+        continue;
+      }
+      int sinkAhead = find(sink, j + 1, sinkTo, s);
+      int sourceAhead = find(source, i + 1, sourceTo, k);
+      if (sinkAhead >= 0 && (sourceAhead < 0 || sinkAhead - j <= sourceAhead - i)) {
+        for (int x = j; x < sinkAhead; x++) {
+          out.unmatchedSink.add(x);
+        }
+        j = sinkAhead;
+      } else if (sourceAhead >= 0) {
+        for (int x = i; x < sourceAhead; x++) {
+          out.unmatchedSource.add(x);
+        }
+        i = sourceAhead;
+      } else {
+        out.substitutions.add(new int[] {i, j});
+        i++;
+        j++;
+      }
+    }
+    for (; i < sourceTo; i++) {
+      out.unmatchedSource.add(i);
+    }
+    for (; j < sinkTo; j++) {
+      out.unmatchedSink.add(j);
+    }
+  }
+
+  private static String key(TraceEvent e) {
+    return e.phase() + ":" + e.id() + ":" + Arrays.hashCode(e.payload()) + ":"
+        + e.payload().length;
+  }
+
   private static int order(Finding f) {
     return f.sourceIndex() >= 0 ? f.sourceIndex() * 2 : f.sinkIndex() * 2 + 1;
   }
@@ -185,8 +305,8 @@ public final class Differ {
     return a.phase() == b.phase() && a.sameContent(b);
   }
 
-  private static int find(List<TraceEvent> events, int from, TraceEvent target) {
-    int end = Math.min(events.size(), from + WINDOW);
+  private static int find(List<TraceEvent> events, int from, int to, TraceEvent target) {
+    int end = Math.min(to, from + WINDOW);
     for (int x = from; x < end; x++) {
       if (same(events.get(x), target)) {
         return x;

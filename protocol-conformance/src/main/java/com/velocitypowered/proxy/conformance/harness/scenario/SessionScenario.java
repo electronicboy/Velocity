@@ -91,6 +91,11 @@ public abstract class SessionScenario implements Scenario {
   }
 
   @Override
+  public boolean comparesTraffic() {
+    return true;
+  }
+
+  @Override
   public ScenarioOutput run(ScenarioContext ctx) throws HarnessException, InterruptedException {
     ScenarioOutput out = new ScenarioOutput();
     int proxyLines = ctx.proxy().lineCount();

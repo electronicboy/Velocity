@@ -125,6 +125,9 @@ public final class VanillaServer implements AutoCloseable {
     props.put("server-ip", "127.0.0.1");
     props.put("server-port", Integer.toString(port));
     props.put("online-mode", "false");
+    // 26.3 started defaulting to an enabled whitelist.
+    props.put("white-list", "false");
+    props.put("enforce-whitelist", "false");
     props.put("enforce-secure-profile", "false");
     props.put("prevent-proxy-connections", "false");
     props.put("enable-rcon", "true");

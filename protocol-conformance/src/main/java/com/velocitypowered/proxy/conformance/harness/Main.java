@@ -39,7 +39,8 @@ import java.util.Set;
  * java -jar conformance-harness.jar --proxy-jar velocity.jar --proxy-kind velocity \
  *     --versions 1.8.9,1.21.11,26.3 [--work build/work] [--report build/report] \
  *     [--ledger ledger.toml] [--cache ~/.cache/conformance] [--jdks /jdk17:/jdk25] \
- *     [--proxy-java /jdk25/bin/java] [--scenarios play/exercise,auth/online] [--gate]
+ *     [--proxy-java /jdk25/bin/java] [--scenarios play/exercise,auth/online] [--shard 0/4]
+ *     [--gate]
  * </pre>
  *
  * <p>{@code --versions @file} reads one version per line.</p>
@@ -76,10 +77,10 @@ public final class Main {
     }
 
     Path work = Path.of(opts.getOrDefault("work", "conformance-work")).toAbsolutePath();
-    Path report = Path.of(opts.getOrDefault("report", "conformance-report")).toAbsolutePath();
-    Path cache = Path.of(opts.getOrDefault("cache", work.resolve("cache").toString()))
+    final Path report = Path.of(opts.getOrDefault("report", "conformance-report")).toAbsolutePath();
+    final Path cache = Path.of(opts.getOrDefault("cache", work.resolve("cache").toString()))
         .toAbsolutePath();
-    Path ledgerFile = opts.containsKey("ledger") ? Path.of(opts.get("ledger")) : null;
+    final Path ledgerFile = opts.containsKey("ledger") ? Path.of(opts.get("ledger")) : null;
     List<Path> jdks = new ArrayList<>();
     if (opts.containsKey("jdks")) {
       for (String jdk : opts.get("jdks").split(File.pathSeparator)) {
@@ -95,8 +96,22 @@ public final class Main {
       scenarios.addAll(Arrays.asList(opts.get("scenarios").split(",")));
     }
 
+    List<String> versions = versions(opts.get("versions"));
+    if (opts.containsKey("shard")) {
+      // "i/n": every n-th version starting at i, so CI can spread the suite over a matrix.
+      String[] shard = opts.get("shard").split("/");
+      int index = Integer.parseInt(shard[0]);
+      int count = Integer.parseInt(shard[1]);
+      List<String> selected = new ArrayList<>();
+      for (int i = 0; i < versions.size(); i++) {
+        if (i % count == index) {
+          selected.add(versions.get(i));
+        }
+      }
+      versions = selected;
+    }
     SuiteConfig config = new SuiteConfig(Path.of(opts.get("proxy-jar")).toAbsolutePath(),
-        opts.getOrDefault("proxy-kind", "velocity"), proxyJava, versions(opts.get("versions")),
+        opts.getOrDefault("proxy-kind", "velocity"), proxyJava, versions,
         work, report, ledgerFile, cache, jdks, scenarios, flags.contains("gate"));
 
     Ledger ledger = ledgerFile != null && Files.isRegularFile(ledgerFile)
@@ -138,7 +153,7 @@ public final class Main {
     System.err.println(problem);
     System.err.println("usage: --proxy-jar JAR --versions V1,V2|@file [--proxy-kind velocity]"
         + " [--work DIR] [--report DIR] [--ledger FILE] [--cache DIR] [--jdks A:B]"
-        + " [--proxy-java JAVA] [--scenarios A,B] [--gate]");
+        + " [--proxy-java JAVA] [--scenarios A,B] [--shard I/N] [--gate]");
     System.exit(2);
   }
 }

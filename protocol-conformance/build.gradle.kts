@@ -86,7 +86,8 @@ tasks.register<Test>("conformanceTest") {
 
 // The live suite. Vanilla servers run on the smallest JDK at least as new as the version asks for,
 // so every JDK a supported version might need is resolved through toolchains and handed over.
-val harnessJdks = listOf(17, 21, 25).map { major ->
+// Java 8 is not optional: 1.8.9 boots on 17 but resets every connection at login.
+val harnessJdks = listOf(8, 17, 21, 25).map { major ->
     javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(major) }
 }
 
@@ -131,6 +132,8 @@ tasks.register<JavaExec>("vanillaConformance") {
                 it.get().metadata.installationPath.asFile.absolutePath
             },
         )
+        providers.gradleProperty("conformance.scenarios").orNull?.let { args += listOf("--scenarios", it) }
+        providers.gradleProperty("conformance.shard").orNull?.let { args += listOf("--shard", it) }
         if (providers.gradleProperty("conformance.gate").isPresent) {
             args += "--gate"
         }

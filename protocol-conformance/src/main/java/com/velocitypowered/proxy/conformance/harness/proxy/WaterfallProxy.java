@@ -73,6 +73,11 @@ final class WaterfallProxy extends ProxyUnderTest {
       // Waterfall's own settings file; keep defaults but make sure it exists so first start does
       // not race the harness.
       Files.writeString(dir.resolve("waterfall.yml"), "", StandardCharsets.UTF_8);
+      // Test runs must not report to bStats.
+      Path metrics = dir.resolve("plugins").resolve("bStats");
+      Files.createDirectories(metrics);
+      Files.writeString(metrics.resolve("config.yml"), "enabled: false\n",
+          StandardCharsets.UTF_8);
     } catch (IOException e) {
       throw new HarnessException("cannot write config.yml", e);
     }

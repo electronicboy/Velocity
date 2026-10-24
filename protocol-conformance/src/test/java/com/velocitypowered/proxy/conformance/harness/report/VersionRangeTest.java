@@ -61,6 +61,14 @@ class VersionRangeTest {
   }
 
   @Test
+  void preReleasesOrderLikeMojangReleasesThem() {
+    assertTrue(VersionRange.compare("26.4-snapshot-5", "26.4-snapshot-10") < 0);
+    assertTrue(VersionRange.compare("26.4-snapshot-10", "26.4-pre-1") < 0);
+    assertTrue(VersionRange.compare("26.4-pre-2", "26.4-rc-1") < 0);
+    assertTrue(VersionRange.parse(">=26.4-snapshot-5").contains("26.4-snapshot-10"));
+  }
+
+  @Test
   void starContainsEverything() {
     assertContains("*", "1.7.2", "1.20.4", "26.4-snapshot-5");
   }

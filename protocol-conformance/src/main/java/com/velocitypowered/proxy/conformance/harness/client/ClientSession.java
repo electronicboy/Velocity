@@ -85,6 +85,11 @@ public final class ClientSession implements AutoCloseable {
   private volatile boolean playerLoadedSent;
   private volatile Throwable readerFailure;
   private int sequence;
+  private double posX;
+  private double posY;
+  private double posZ;
+  private float rotYaw;
+  private float rotPitch;
 
   private ClientSession(Socket socket, int protocol, PacketTable table, ClientOptions options)
       throws IOException {
@@ -384,24 +389,50 @@ public final class ClientSession implements AutoCloseable {
     if (!out.protocolHasTeleportIds()) {
       return;
     }
+    // Each coordinate may be relative to where the client already is; vanilla validates the echo
+    // (26.3+) and the following movement, so track the absolute position like a real client.
     int teleportId;
     double x;
     double y;
     double z;
+    float yaw;
+    float pitch;
+    int relative;
     if (Protocols.atLeast(protocol, Protocols.V1_21_2)) {
       teleportId = buf.readVarInt();
       x = buf.readDouble();
       y = buf.readDouble();
       z = buf.readDouble();
+      buf.skip(8 * 3);
+      yaw = buf.readFloat();
+      pitch = buf.readFloat();
+      relative = buf.readInt();
     } else {
       x = buf.readDouble();
       y = buf.readDouble();
       z = buf.readDouble();
-      buf.skip(4 + 4 + 1);
+      yaw = buf.readFloat();
+      pitch = buf.readFloat();
+      relative = buf.readUnsignedByte();
       teleportId = buf.readVarInt();
     }
-    send(Phase.PLAY, "minecraft:accept_teleportation", out.acceptTeleportation(teleportId));
-    send(Phase.PLAY, "minecraft:move_player_pos_rot", out.movePlayerPosRot(x, y, z, 0f, 0f));
+    posX = (relative & 0x01) != 0 ? posX + x : x;
+    posY = (relative & 0x02) != 0 ? posY + y : y;
+    posZ = (relative & 0x04) != 0 ? posZ + z : z;
+    rotYaw = (relative & 0x08) != 0 ? rotYaw + yaw : yaw;
+    rotPitch = (relative & 0x10) != 0 ? rotPitch + pitch : pitch;
+    x = posX;
+    y = posY;
+    z = posZ;
+    yaw = rotYaw;
+    pitch = rotPitch;
+    send(Phase.PLAY, "minecraft:accept_teleportation",
+        out.acceptTeleportation(teleportId, x, y, z, yaw, pitch));
+    // From 26.3 the acknowledgement carries the position and counts as this tick's movement; a
+    // second position update in the same tick gets the player kicked.
+    if (!Protocols.atLeast(protocol, Protocols.V26_3)) {
+      send(Phase.PLAY, "minecraft:move_player_pos_rot", out.movePlayerPosRot(x, y, z, yaw, pitch));
+    }
     if (!playerLoadedSent && table.id(Phase.PLAY, SERVERBOUND, "minecraft:player_loaded")
         .isPresent()) {
       playerLoadedSent = true;

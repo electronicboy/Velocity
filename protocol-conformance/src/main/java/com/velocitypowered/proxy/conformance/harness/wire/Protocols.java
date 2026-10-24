@@ -46,6 +46,7 @@ public final class Protocols {
   public static final int V1_21_5 = 770;
   public static final int V1_21_6 = 771;
   public static final int V1_21_9 = 773;
+  public static final int V26_3 = 777;
 
   private static final int SNAPSHOT_BIT = 0x40000000;
 

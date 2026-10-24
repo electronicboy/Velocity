@@ -50,6 +50,17 @@ public interface Scenario {
   }
 
   /**
+   * Returns whether the scenario compares traffic across the proxy. Ledger expectations about
+   * traffic findings only apply to scenarios that do, so they are not reported as fixed in cells
+   * that could never have produced them.
+   *
+   * @return whether traffic is compared
+   */
+  default boolean comparesTraffic() {
+    return false;
+  }
+
+  /**
    * Runs the scenario.
    *
    * @param ctx everything the scenario may use

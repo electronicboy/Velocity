@@ -29,8 +29,8 @@ import java.util.regex.Pattern;
 
 /**
  * The Java installations available for running vanilla servers. A server runs on the smallest
- * installation at least as new as Mojang asks for; older releases are known to run on newer JDKs
- * (1.7.10, 1.8.9 and 1.12.2 were checked on 17).
+ * installation at least as new as Mojang asks for. Provide Java 8: old releases boot on newer JDKs,
+ * but 1.8.9's networking resets every connection at login on 17.
  */
 public final class JavaRuntimes {
 

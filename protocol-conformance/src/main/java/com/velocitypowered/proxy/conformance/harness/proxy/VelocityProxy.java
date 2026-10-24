@@ -79,6 +79,16 @@ final class VelocityProxy extends ProxyUnderTest {
       Files.createDirectories(dir);
       Files.writeString(dir.resolve("velocity.toml"), new TomlWriter().writeToString(config),
           StandardCharsets.UTF_8);
+      // Test runs must not report to bStats.
+      Path metrics = dir.resolve("plugins").resolve("bStats");
+      Files.createDirectories(metrics);
+      Files.writeString(metrics.resolve("config.txt"), """
+          enabled=false
+          server-uuid=00000000-0000-0000-0000-000000000000
+          log-errors=false
+          log-sent-data=false
+          log-response-status-text=false
+          """, StandardCharsets.UTF_8);
     } catch (IOException e) {
       throw new HarnessException("cannot write velocity.toml", e);
     }

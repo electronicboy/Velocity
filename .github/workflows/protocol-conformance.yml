@@ -1,8 +1,15 @@
-# Validates Velocity's protocol registries against Mojang's own data generator.
+# Validates Velocity's protocol handling against vanilla Minecraft.
 #
-# Kept out of the normal build: it downloads every supported vanilla server jar and runs the data
-# generator over each, which takes minutes and needs network access. Nothing it extracts is
-# committed — it is re-pulled on every run.
+# Two jobs, both kept out of the normal build because they download vanilla server jars from Mojang
+# and take minutes:
+#
+# - registries: runs Mojang's data generator over every supported server jar and checks Velocity's
+#   packet id and argument type tables against what it reports. No proxy is started.
+# - vanilla: starts a real vanilla server behind the proxy built from this tree (offline mode, no
+#   forwarding) and checks that traffic crosses the proxy intact in both directions, for every
+#   supported version. Known failures are listed in protocol-conformance/ledger.toml.
+#
+# Nothing downloaded or generated from Mojang is committed; it is re-pulled on every run.
 name: Protocol conformance
 
 on:
@@ -12,12 +19,17 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
+    inputs:
+      versions:
+        description: 'Comma-separated Minecraft versions for the vanilla job (default: all supported)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
-  conformance:
+  registries:
     # Pull requests only opt in via the label, so this stays off the critical path for everything
     # that is not a version bump.
     if: >-
@@ -31,10 +43,10 @@ jobs:
           persist-credentials: false
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v5
-      - name: Set up JDK 21
+      - name: Set up JDK 25
         uses: actions/setup-java@v5
         with:
-          java-version: 21
+          java-version: 25
           distribution: 'zulu'
       - name: Run conformance checks
         # Versions come from ProtocolVersion.SUPPORTED_VERSIONS, so a `minecraft update` branch
@@ -51,3 +63,59 @@ jobs:
         with:
           name: vanilla-data
           path: protocol-conformance/build/vanilla-data
+
+  vanilla:
+    if: >-
+      github.event_name != 'pull_request'
+      || contains(github.event.pull_request.labels.*.name, 'minecraft update')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each shard takes every fourth supported version, so old and new versions spread evenly.
+        shard: ['0/4', '1/4', '2/4', '3/4']
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+      - name: Set up JDKs
+        # Vanilla servers run on the smallest JDK at least as new as Mojang asks for: 8 up to
+        # 1.16.5 (1.8.9 boots on newer JDKs but its networking breaks), 17 up to 1.20.4, 21 up to
+        # 1.21.11, 25 after. The last one listed becomes JAVA_HOME and runs Gradle and the proxy.
+        uses: actions/setup-java@v5
+        with:
+          java-version: |
+            8
+            17
+            21
+            25
+          distribution: 'zulu'
+      - name: Run the vanilla suite
+        env:
+          VERSIONS: ${{ github.event.inputs.versions }}
+        run: |
+          args=(-Pconformance.shard=${{ matrix.shard }} -Pconformance.gate
+                -Porg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64,JAVA_HOME_25_X64)
+          if [ -n "$VERSIONS" ]; then args+=("-Pconformance.versions=$VERSIONS"); fi
+          ./gradlew :velocity-protocol-conformance:vanillaConformance "${args[@]}"
+      - name: Publish summary
+        if: always()
+        run: |
+          if [ -f protocol-conformance/build/conformance-report/summary.md ]; then
+            cat protocol-conformance/build/conformance-report/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload report and traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vanilla-conformance-${{ strategy.job-index }}
+          path: |
+            protocol-conformance/build/conformance-report
+            protocol-conformance/build/conformance-work/*/traces
+            protocol-conformance/build/conformance-work/*/proxy-*/console.log
+            protocol-conformance/build/conformance-work/*/vanilla/console.log
+          if-no-files-found: ignore

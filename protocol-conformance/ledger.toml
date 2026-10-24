@@ -13,17 +13,21 @@
 
 [[expect]]
 proxy = "velocity"
-versions = ">=1.19"
+# Only operators see the commands that use these arguments, and only play/exercise ops the player.
+scenario = "play/exercise"
+versions = ">=1.18.2"
 signature = "MISMATCH S->C PLAY minecraft:commands"
 detail = "sent minecraft:resource_or_tag delivered minecraft:resource"
 reason = """\
   Velocity re-encodes every minecraft:resource_or_tag argument as minecraft:resource. Both are \
   registered against RegistryKeyArgument.class in ArgumentPropertyRegistry, so the class-to-id \
   map keeps whichever is registered last. Clients then reject tag syntax (#minecraft:...) in \
-  /locate, /fillbiome and /execute if biome before the command is ever sent."""
+  /locate, /fillbiome and /execute if biome before the command is ever sent. On 1.18.2, where \
+  parsers are named on the wire, the substituted minecraft:resource does not exist yet."""
 
 [[expect]]
 proxy = "velocity"
+scenario = "play/exercise"
 signature = "REORDERED C->S PLAY minecraft:chat"
 flaky = true
 reason = """\

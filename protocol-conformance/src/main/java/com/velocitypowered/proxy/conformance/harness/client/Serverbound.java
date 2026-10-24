@@ -252,13 +252,24 @@ public final class Serverbound {
   }
 
   /**
-   * Builds a teleport confirmation (1.9+).
+   * Builds a teleport confirmation (1.9+). From 26.3 it echoes the position and rotation the
+   * client ended up at.
    *
    * @param teleportId the id from the position packet
+   * @param x x
+   * @param y y
+   * @param z z
+   * @param yaw yaw
+   * @param pitch pitch
    * @return the body
    */
-  public byte[] acceptTeleportation(int teleportId) {
-    return new Buf().writeVarInt(teleportId).toByteArray();
+  public byte[] acceptTeleportation(int teleportId, double x, double y, double z, float yaw,
+      float pitch) {
+    Buf buf = new Buf().writeVarInt(teleportId);
+    if (atLeast(Protocols.V26_3)) {
+      buf.writeDouble(x).writeDouble(y).writeDouble(z).writeFloat(yaw).writeFloat(pitch);
+    }
+    return buf.toByteArray();
   }
 
   /**

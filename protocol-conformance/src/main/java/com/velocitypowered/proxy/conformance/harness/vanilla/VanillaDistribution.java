@@ -229,9 +229,17 @@ public final class VanillaDistribution {
     String best = null;
     int bestProtocol = -1;
     for (String key : paths.keySet()) {
+      if (!paths.getAsJsonObject(key).has("protocol") || !key.matches("\\d+\\.\\d+(\\.\\d+)?")) {
+        continue;
+      }
       Integer protocol = protocols.get(key);
-      if (protocol == null || !paths.getAsJsonObject(key).has("protocol")
-          || !key.matches("\\d+\\.\\d+(\\.\\d+)?")) {
+      if (protocol == null && paths.getAsJsonObject(key).has("version")) {
+        // Keys such as "1.7" name a family; the data directory records the exact protocol.
+        JsonObject family = json(MINECRAFT_DATA
+            + paths.getAsJsonObject(key).get("version").getAsString() + "/version.json", true);
+        protocol = family.get("version").getAsInt();
+      }
+      if (protocol == null) {
         continue;
       }
       if (protocol <= version.protocol() && protocol > bestProtocol) {

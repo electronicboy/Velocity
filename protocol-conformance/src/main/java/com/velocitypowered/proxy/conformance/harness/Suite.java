@@ -116,6 +116,7 @@ public final class Suite {
       table = distribution.packetTable(resolved.get());
       argumentTypes = distribution.argumentTypes(resolved.get()).orElse(null);
     } catch (IOException | RuntimeException e) {
+      System.out.println("[suite] cannot prepare " + id + ": " + e);
       for (Scenario s : scenarios) {
         reporter.add(CellResult.error(id, s.id(), "cannot prepare " + id + ": " + trace(e),
             Duration.between(started, Instant.now())));
@@ -151,6 +152,7 @@ public final class Suite {
         }
       }
     } catch (HarnessException | IOException | RuntimeException e) {
+      System.out.println("[suite] " + id + " failed: " + e);
       for (Scenario s : scenarios) {
         if (reporter.results().stream().noneMatch(r -> r.version().equals(id)
             && r.scenario().equals(s.id()))) {
@@ -183,8 +185,11 @@ public final class Suite {
         CellResult result;
         try {
           ScenarioOutput out = scenario.run(ctx);
-          result = CellResult.judge(version.id(), scenario.id(), out.failures(),
-              ledger.expectations(config.proxyKind(), scenario.id(), version.id()),
+          List<Ledger.Expectation> expectations = ledger
+              .expectations(config.proxyKind(), scenario.id(), version.id()).stream()
+              .filter(e -> scenario.comparesTraffic() || e.signature().startsWith("CHECK"))
+              .toList();
+          result = CellResult.judge(version.id(), scenario.id(), out.failures(), expectations,
               out.tolerated(), out.matched(), Duration.between(started, Instant.now()));
         } catch (HarnessException | RuntimeException e) {
           result = CellResult.error(version.id(), scenario.id(), trace(e),

@@ -83,8 +83,11 @@ public final class ExerciseScenario extends SessionScenario {
     }
     client.send("minecraft:command_suggestion", packets.commandSuggestion(7, "/gamemode "));
     client.send("minecraft:client_information", packets.clientInformation());
-    if (Protocols.atLeast(protocol, Protocols.V1_8)) {
+    if (client.has("minecraft:swing") && Protocols.atLeast(protocol, Protocols.V1_8)) {
       client.send("minecraft:swing", packets.swing());
+    } else if (client.has("minecraft:punch")) {
+      // 26.3 replaced the arm swing with an empty punch packet.
+      client.send("minecraft:punch", new byte[0]);
     }
     client.send("minecraft:set_carried_item", packets.setCarriedItem(1));
     client.send("minecraft:set_carried_item", packets.setCarriedItem(0));

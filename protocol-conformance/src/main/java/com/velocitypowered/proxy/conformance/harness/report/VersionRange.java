@@ -115,7 +115,28 @@ public final class VersionRange {
     if (firstPre != secondPre) {
       return firstPre ? -1 : 1;
     }
-    return firstPre ? aa[1].compareTo(bb[1]) : 0;
+    return firstPre ? comparePreRelease(aa[1], bb[1]) : 0;
+  }
+
+  /**
+   * Orders pre-release suffixes the way Mojang releases them: snapshots, then pre-releases, then
+   * release candidates, each numbered naturally ({@code snapshot-5 < snapshot-10}).
+   */
+  private static int comparePreRelease(String a, String b) {
+    int rank = Integer.compare(preReleaseRank(a), preReleaseRank(b));
+    if (rank != 0) {
+      return rank;
+    }
+    int number = Integer.compare(number(a.replaceAll("\\D+", " ").trim().replaceAll(" .*", "")),
+        number(b.replaceAll("\\D+", " ").trim().replaceAll(" .*", "")));
+    return number != 0 ? number : a.compareTo(b);
+  }
+
+  private static int preReleaseRank(String suffix) {
+    if (suffix.startsWith("rc")) {
+      return 2;
+    }
+    return suffix.startsWith("pre") ? 1 : 0;
   }
 
   private static int number(String part) {
