@@ -1,0 +1,74 @@
+{
+  "types": {
+    "varint": "native",
+    "string": ["pstring", {"countType": "varint"}]
+  },
+  "handshaking": {
+    "toClient": {
+      "types": {}
+    },
+    "toServer": {
+      "types": {
+        "packet": ["container", [
+          {"name": "name", "type": ["mapper", {"type": "varint", "mappings": {
+            "0x00": "set_protocol",
+            "0xfe": "legacy_server_list_ping"
+          }}]},
+          {"name": "params", "type": ["switch", {"compareTo": "name", "fields": {
+            "set_protocol": "packet_set_protocol"
+          }}]}
+        ]]
+      }
+    }
+  },
+  "login": {
+    "toClient": {
+      "types": {
+        "packet": ["container", [
+          {"name": "name", "type": ["mapper", {"type": "varint", "mappings": {
+            "0x00": "disconnect",
+            "0x01": "encryption_begin",
+            "0x02": "success",
+            "0x03": "compress",
+            "0x05": "mystery_packet"
+          }}]},
+          {"name": "params", "type": ["switch", {"compareTo": "name", "fields": {}}]}
+        ]]
+      }
+    },
+    "toServer": {
+      "types": {
+        "packet": ["container", [
+          {"name": "name", "type": ["mapper", {"type": "varint", "mappings": {
+            "0x00": "login_start",
+            "0x01": "encryption_begin"
+          }}]},
+          {"name": "params", "type": ["switch", {"compareTo": "name", "fields": {}}]}
+        ]]
+      }
+    }
+  },
+  "play": {
+    "toClient": {
+      "types": {
+        "packet": ["container", [
+          {"name": "name", "type": ["mapper", {"type": "varint", "mappings": {
+            "0x1f": "keep_alive",
+            "0x18": "custom_payload"
+          }}]},
+          {"name": "params", "type": ["switch", {"compareTo": "name", "fields": {}}]}
+        ]]
+      }
+    },
+    "toServer": {
+      "types": {
+        "packet": ["container", [
+          {"name": "name", "type": ["mapper", {"type": "varint", "mappings": {
+            "0x0b": "keep_alive"
+          }}]},
+          {"name": "params", "type": ["switch", {"compareTo": "name", "fields": {}}]}
+        ]]
+      }
+    }
+  }
+}

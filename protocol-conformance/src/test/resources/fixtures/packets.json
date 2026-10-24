@@ -1,0 +1,57 @@
+{
+  "handshake": {
+    "serverbound": {
+      "minecraft:intention": {"protocol_id": 0}
+    }
+  },
+  "status": {
+    "clientbound": {
+      "minecraft:status_response": {"protocol_id": 0}
+    },
+    "serverbound": {
+      "minecraft:status_request": {"protocol_id": 0}
+    }
+  },
+  "login": {
+    "clientbound": {
+      "minecraft:login_disconnect": {"protocol_id": 0},
+      "minecraft:hello": {"protocol_id": 1},
+      "minecraft:login_finished": {"protocol_id": 2},
+      "minecraft:login_compression": {"protocol_id": 3},
+      "minecraft:custom_query": {"protocol_id": 4}
+    },
+    "serverbound": {
+      "minecraft:hello": {"protocol_id": 0},
+      "minecraft:key": {"protocol_id": 1},
+      "minecraft:custom_query_answer": {"protocol_id": 2},
+      "minecraft:login_acknowledged": {"protocol_id": 3}
+    }
+  },
+  "configuration": {
+    "clientbound": {
+      "minecraft:custom_payload": {"protocol_id": 1},
+      "minecraft:finish_configuration": {"protocol_id": 3}
+    },
+    "serverbound": {
+      "minecraft:client_information": {"protocol_id": 0},
+      "minecraft:custom_payload": {"protocol_id": 2},
+      "minecraft:finish_configuration": {"protocol_id": 3},
+      "minecraft:keep_alive": {"protocol_id": 4}
+    }
+  },
+  "play": {
+    "clientbound": {
+      "minecraft:commands": {"protocol_id": 16},
+      "minecraft:custom_payload": {"protocol_id": 24},
+      "minecraft:keep_alive": {"protocol_id": 38},
+      "minecraft:system_chat": {"protocol_id": 114},
+      "minecraft:tab_list": {"protocol_id": 120}
+    },
+    "serverbound": {
+      "minecraft:chat": {"protocol_id": 8},
+      "minecraft:configuration_acknowledged": {"protocol_id": 15},
+      "minecraft:custom_payload": {"protocol_id": 21},
+      "minecraft:keep_alive": {"protocol_id": 27}
+    }
+  }
+}
