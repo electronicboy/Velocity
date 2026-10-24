@@ -159,7 +159,10 @@ public final class FrameCodec {
       int total = 0;
       while (total < expected) {
         int n = inflater.inflate(out, total, expected - total);
-        if (n == 0 && (inflater.finished() || inflater.needsInput())) {
+        // A stream asking for a preset dictionary (FDICT) never makes progress: vanilla supplies
+        // none and rejects the frame, so stop rather than spin.
+        if (n == 0
+            && (inflater.finished() || inflater.needsInput() || inflater.needsDictionary())) {
           break;
         }
         total += n;
