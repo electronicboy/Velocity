@@ -69,6 +69,34 @@ final class VanillaData {
     return byId;
   }
 
+  /**
+   * Returns the vanilla packet ids for the given version as {@code phase -> direction -> name ->
+   * id}, using Mojang's names throughout ({@code "configuration"}, {@code "clientbound"},
+   * {@code "minecraft:keep_alive"}), or {@code null} if the version's data generator does not emit
+   * a packet report (anything before 1.21).
+   */
+  static Map<String, Map<String, Map<String, Integer>>> packets(ProtocolVersion version) {
+    JsonObject root = read(version.getVersionIntroducedIn());
+    if (root == null || !root.has("packets")) {
+      return null;
+    }
+
+    Map<String, Map<String, Map<String, Integer>>> phases = new TreeMap<>();
+    for (Map.Entry<String, JsonElement> phase : root.getAsJsonObject("packets").entrySet()) {
+      Map<String, Map<String, Integer>> directions = new TreeMap<>();
+      for (Map.Entry<String, JsonElement> direction
+          : phase.getValue().getAsJsonObject().entrySet()) {
+        Map<String, Integer> ids = new TreeMap<>();
+        for (Map.Entry<String, JsonElement> packet
+            : direction.getValue().getAsJsonObject().entrySet()) {
+          ids.put(packet.getKey(), packet.getValue().getAsInt());
+        }
+        directions.put(direction.getKey(), ids);
+      }
+      phases.put(phase.getKey(), directions);
+    }
+    return phases;
+  }
 
   private static JsonObject read(String name) {
     Path path = directory().resolve(name + ".json");

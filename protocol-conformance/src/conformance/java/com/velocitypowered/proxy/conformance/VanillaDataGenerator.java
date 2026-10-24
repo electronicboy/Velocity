@@ -42,7 +42,8 @@ import java.util.stream.Stream;
 
 /**
  * Extracts the registries Velocity validates against by running Mojang's data generator over every
- * vanilla server jar the proxy supports from 1.19 onwards.
+ * vanilla server jar the proxy supports from 1.19 onwards, along with the packet id report the
+ * generator emits from 1.21.
  *
  * <p>Versions are taken from {@link ProtocolVersion#SUPPORTED_VERSIONS}, so a snapshot is only ever
  * pulled once a constant has been added for it — that is, while a version bump is in progress.
@@ -237,7 +238,36 @@ public final class VanillaDataGenerator {
       }
       result.add("command_argument_type", argumentTypes);
     }
+
+    // Only emitted from 1.21 onwards; older versions simply have no packet table to check.
+    JsonObject packets = readIfPresent(reports.resolve("reports/packets.json"));
+    if (packets != null) {
+      result.add("packets", flattenPackets(packets));
+    }
     return result;
+  }
+
+  /**
+   * Reduces Mojang's {@code phase -> direction -> name -> {"protocol_id": id}} report to
+   * {@code phase -> direction -> name -> id}.
+   */
+  private static JsonObject flattenPackets(JsonObject packets) {
+    JsonObject phases = new JsonObject();
+    for (Map.Entry<String, JsonElement> phase : packets.entrySet()) {
+      JsonObject directions = new JsonObject();
+      for (Map.Entry<String, JsonElement> direction
+          : phase.getValue().getAsJsonObject().entrySet()) {
+        JsonObject ids = new JsonObject();
+        for (Map.Entry<String, JsonElement> packet
+            : direction.getValue().getAsJsonObject().entrySet()) {
+          ids.addProperty(packet.getKey(),
+              packet.getValue().getAsJsonObject().get("protocol_id").getAsInt());
+        }
+        directions.add(direction.getKey(), ids);
+      }
+      phases.add(phase.getKey(), directions);
+    }
+    return phases;
   }
 
   private static String sha1Of(Path path) throws Exception {
