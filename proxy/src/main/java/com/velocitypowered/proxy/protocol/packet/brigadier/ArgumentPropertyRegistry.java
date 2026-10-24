@@ -251,7 +251,9 @@ public class ArgumentPropertyRegistry {
         mapSet(MINECRAFT_1_19_3, 40), mapSet(MINECRAFT_1_19, 42)), TimeArgumentSerializer.TIME); // added in 1.14
 
     register(id("minecraft:resource_or_tag", mapSet(MINECRAFT_1_21_6, 44), mapSet(MINECRAFT_1_20_5, 43), mapSet(MINECRAFT_1_20_3, 42),
-        mapSet(MINECRAFT_1_19_3, 41), mapSet(MINECRAFT_1_19, 43)), RegistryKeyArgument.class, RegistryKeyArgumentSerializer.REGISTRY);
+        mapSet(MINECRAFT_1_19_3, 41), mapSet(MINECRAFT_1_19, 43)),
+        RegistryKeyArgumentList.ResourceOrTag.class,
+        RegistryKeyArgumentList.ResourceOrTag.Serializer.REGISTRY);
     register(id("minecraft:resource_or_tag_key", mapSet(MINECRAFT_1_21_6, 45), mapSet(MINECRAFT_1_20_5, 44), mapSet(MINECRAFT_1_20_3, 43),
         mapSet(MINECRAFT_1_19_3, 42)),
         RegistryKeyArgumentList.ResourceOrTagKey.class,
