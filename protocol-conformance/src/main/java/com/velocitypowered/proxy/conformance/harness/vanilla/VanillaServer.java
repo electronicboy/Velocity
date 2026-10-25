@@ -80,9 +80,7 @@ public final class VanillaServer implements AutoCloseable {
       try {
         process.awaitLine(line -> line.contains("RCON running on"), STARTUP);
         process.awaitLine(line -> line.contains("Done ("), STARTUP);
-        Rcon rcon = Rcon.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), rconPort),
-            RCON_PASSWORD);
-        return new VanillaServer(version, process, port, rcon);
+        return new VanillaServer(version, process, port, connectRcon(rconPort));
       } catch (HarnessException | IOException e) {
         process.close();
         throw e instanceof HarnessException h ? h
@@ -91,6 +89,26 @@ public final class VanillaServer implements AutoCloseable {
     } catch (IOException e) {
       throw new HarnessException("cannot lay out vanilla " + version.id(), e);
     }
+  }
+
+  private static Rcon connectRcon(int rconPort) throws IOException {
+    // Older servers announce RCON a moment before the listener reliably accepts logins.
+    IOException last = null;
+    for (int attempt = 0; attempt < 10; attempt++) {
+      try {
+        return Rcon.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), rconPort),
+            RCON_PASSWORD);
+      } catch (IOException e) {
+        last = e;
+        try {
+          Thread.sleep(1000);
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          throw new IOException(interrupted);
+        }
+      }
+    }
+    throw last;
   }
 
   public int port() {

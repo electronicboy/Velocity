@@ -1,7 +1,7 @@
 # Vanilla protocol conformance — design
 
 Date: 2026-10-25
-Status: self-designed at the user's request (no question round); implementation follows.
+Status: self-designed at the user's request (no question round); v1 implemented (section 11).
 
 ## 1. Intent
 
@@ -265,3 +265,61 @@ change, not folded into the harness.
   differ already handles phase epochs, so it is additive.
 - A full field-level decoder (ProtoDef interpreter over `minecraft-data`) is
   deferred; the byte-level differential oracle does not need it.
+
+## 11. Implementation notes (2026-10-25)
+
+What calibrating against real servers changed, so the next person does not relearn it.
+
+### Harness lessons
+
+- **The JDK's `CipherInputStream` holds decrypted bytes back** until more ciphertext arrives. In a
+  request/response exchange (1.20.2+ login acknowledgement) the last packet before the server
+  waits is never delivered, and the client stalls until the proxy's login timeout. The client
+  uses a byte-wise CFB8 over AES/ECB instead (`wire/Cfb8`).
+- **Greedy alignment is fooled by repeated packets.** Velocity's injected title reset is
+  byte-identical to a reset the backend sends a hundred packets later. The differ is a patience
+  diff anchored on packets unique to both sides, with a greedy walk only inside gaps.
+- **Old servers boot on new JDKs but do not work.** 1.8.9 starts on Java 17 and resets every
+  connection at login. Java 8 is part of the JDK set; each server runs on the smallest JDK at
+  least as new as Mojang's `javaVersion`.
+- **Vanilla defaults move.** 26.3 enables the whitelist by default; the harness sets every
+  property it depends on explicitly.
+- **26.3 changed client obligations**: `accept_teleportation` echoes position and counts as the
+  tick's movement (a following move packet is a kick), relative teleports must be applied to a
+  tracked absolute position, and `swing` became an empty `punch`.
+- **Only operators see the full command tree**, so command-tree expectations are scoped to the
+  scenario that ops the player.
+- **Vanilla 1.13's RCON runs commands off the server thread**; `/kill` crashes it. The script skips
+  it there, a crashed backend is reported as `error`, and the backend is restarted for the next
+  scenario.
+- **Several packets of one type** (three command trees in a session) must be paired tolerated-first,
+  then in order, or the differ cross-matches them.
+
+### Findings in Velocity
+
+| Finding | Versions | Status |
+|---|---|---|
+| `minecraft:resource_or_tag` arguments re-encoded as `minecraft:resource` (both registered against `RegistryKeyArgument`). On 1.18.2 the substituted name does not exist client-side. | 1.18.2+ | ledger; fix on `fix/resource-or-tag-argument-id` |
+| Chat and commands forwarded after async events, so later serverbound packets overtake them. | all | ledger (flaky) |
+| Unsigned 1.19–1.19.2 chat re-stamped with `Instant.now()` on encode (`KeyedPlayerChatPacket`); with the async delay, a following command carries an earlier timestamp and vanilla kicks the player for out-of-order chat. | 1.19–1.19.2 | ledger |
+
+Documented behaviours tolerated by `VelocityRules`, each citing its source: brand rewrite, proxy
+commands merged into the tree, tab list header/footer reset and title reset on join,
+`server_data` answered from the proxy's own ping, client brand held and settings replayed during
+configuration, plugin channels re-announced to the backend, NBT compound order in 1.16–1.20.1 join
+game, the 26.x join game online-mode flag, wrapped kick messages, sorted legacy tab completions.
+
+### Static check
+
+`PacketIdConformanceTest` found Velocity's packet ids identical to Mojang's `packets.json` for
+1.21 through 26.3. It also noted that Velocity registers `show_dialog`/`clear_dialog` only in
+configuration, not play; that is not an id error (they pass through undecoded).
+
+### Deferred
+
+- Server switching between two vanilla backends (the differ already splits by phase epoch).
+- A kick scenario (the wrapped-kick rule exists but no scenario provokes a kick deliberately).
+- Waterfall: the adapter and `BungeeRules` exist but have not been calibrated against a Waterfall
+  build.
+- A field-level decoder (ProtoDef over minecraft-data) for richer mismatch reports.
+- Serverbound coverage beyond the scripted set; the coverage report lists what is missing.

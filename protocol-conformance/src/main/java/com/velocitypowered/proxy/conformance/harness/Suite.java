@@ -131,10 +131,10 @@ public final class Suite {
     Coverage coverage = new Coverage(id, table);
     try (FakeSessionService auth = FakeSessionService.start()) {
       Path jar = distribution.serverJar(version);
-      try (VanillaServer server = VanillaServer.start(version, jar,
-          java.forMajor(version.javaMajor()), dir.resolve("vanilla"), freePort(), freePort());
+      try (Backend server = new Backend(version, jar, java.forMajor(version.javaMajor()),
+          dir.resolve("vanilla"), freePort(), freePort());
           TapRelay tap = new TapRelay(new InetSocketAddress(InetAddress.getLoopbackAddress(),
-              server.port()), table, version.protocol())) {
+              server.port), table, version.protocol())) {
         for (boolean online : new boolean[] {false, true}) {
           List<Scenario> group = scenarios.stream()
               .filter(s -> s.onlineMode() == online)
@@ -166,7 +166,7 @@ public final class Suite {
   }
 
   private void runGroup(VanillaVersion version, PacketTable table, String[] argumentTypes,
-      VanillaServer server, TapRelay tap, FakeSessionService auth, boolean online,
+      Backend server, TapRelay tap, FakeSessionService auth, boolean online,
       List<Scenario> group, Coverage coverage, Path dir) throws HarnessException {
     Path proxyDir = dir.resolve(online ? "proxy-online" : "proxy-offline");
     int port = freePort();
@@ -179,11 +179,11 @@ public final class Suite {
       for (Scenario scenario : group) {
         Instant started = Instant.now();
         System.out.println("[suite] " + version.id() + " " + scenario.id());
-        ScenarioContext ctx = new ScenarioContext(version, table, argumentTypes, server, tap, auth,
-            address, proxy.process(), rules,
-            dir.resolve("traces").resolve(scenario.id().replace('/', '_')), coverage);
         CellResult result;
         try {
+          ScenarioContext ctx = new ScenarioContext(version, table, argumentTypes,
+              server.ensureRunning(), tap, auth, address, proxy.process(), rules,
+              dir.resolve("traces").resolve(scenario.id().replace('/', '_')), coverage);
           ScenarioOutput out = scenario.run(ctx);
           List<Ledger.Expectation> expectations = ledger
               .expectations(config.proxyKind(), scenario.id(), version.id()).stream()
@@ -205,6 +205,45 @@ public final class Suite {
         result.unexpected().stream().limit(20).forEach(f -> System.out.println("    " + f));
         reporter.add(result);
       }
+    }
+  }
+
+  /**
+   * The version's vanilla server, restarted on the same ports if it died (a vanilla crash must
+   * cost one cell, not the rest of the version).
+   */
+  private static final class Backend implements AutoCloseable {
+    private final VanillaVersion version;
+    private final Path jar;
+    private final Path java;
+    private final Path dir;
+    private final int port;
+    private final int rconPort;
+    private VanillaServer server;
+
+    Backend(VanillaVersion version, Path jar, Path java, Path dir, int port, int rconPort)
+        throws HarnessException {
+      this.version = version;
+      this.jar = jar;
+      this.java = java;
+      this.dir = dir;
+      this.port = port;
+      this.rconPort = rconPort;
+      this.server = VanillaServer.start(version, jar, java, dir, port, rconPort);
+    }
+
+    VanillaServer ensureRunning() throws HarnessException {
+      if (!server.process().isAlive()) {
+        System.out.println("[suite] vanilla " + version.id() + " died; restarting it");
+        server.close();
+        server = VanillaServer.start(version, jar, java, dir, port, rconPort);
+      }
+      return server;
+    }
+
+    @Override
+    public void close() {
+      server.close();
     }
   }
 

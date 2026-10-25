@@ -146,6 +146,12 @@ public abstract class SessionScenario implements Scenario {
           out.fail("CHECK client.decode", "could not read the proxy's stream: " + failure));
     }
     checkLogs(ctx, proxyLines, backendLines, out);
+    if (ctx.server().process().hasLine(l -> l.contains("This crash report has been saved"))
+        || !ctx.server().process().isAlive()) {
+      // The backend itself fell over; whatever the proxy did afterwards is not a finding.
+      throw new HarnessException("the vanilla server crashed during the scenario:\n"
+          + ctx.server().process().tail(20));
+    }
     return out;
   }
 

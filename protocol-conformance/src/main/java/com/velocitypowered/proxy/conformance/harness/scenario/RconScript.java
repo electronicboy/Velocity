@@ -42,6 +42,7 @@ import java.util.List;
 public final class RconScript {
 
   private static final int V1_11 = 315;
+  private static final int V1_13_1 = 401;
   private static final int V1_19_4 = 762;
 
   private record Entry(int from, int until, String command) {
@@ -154,7 +155,10 @@ public final class RconScript {
     // Death and respawn: the client answers with perform-respawn.
     add(0, V1_13, "gamemode 0 {p}");
     add(V1_13, 0, "gamemode survival {p}");
-    add(0, 0, "kill {p}");
+    // Not on 1.13 itself: its RCON runs commands off the server thread and /kill crashes the tick
+    // loop with a ConcurrentModificationException (fixed in 1.13.1).
+    add(0, V1_13, "kill {p}");
+    add(V1_13_1, 0, "kill {p}");
   }
 
   private RconScript() {

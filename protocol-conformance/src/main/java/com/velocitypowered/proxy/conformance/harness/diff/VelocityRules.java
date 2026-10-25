@@ -115,17 +115,18 @@ final class VelocityRules extends CommonRules {
     Set<String> runs = new HashSet<>();
     StringBuilder run = new StringBuilder();
     for (byte b : payload) {
-      if (b >= 0x20 && b < 0x7F) {
+      // Word characters plus the punctuation of translation keys; JSON and NBT structure split.
+      if (Character.isLetterOrDigit(b) || b == '.' || b == '_' || b == '-' || b == ' ') {
         run.append((char) b);
       } else {
-        if (run.length() >= 6) {
-          runs.add(run.toString());
+        if (run.toString().strip().length() >= 6) {
+          runs.add(run.toString().strip());
         }
         run.setLength(0);
       }
     }
-    if (run.length() >= 6) {
-      runs.add(run.toString());
+    if (run.toString().strip().length() >= 6) {
+      runs.add(run.toString().strip());
     }
     // Structural keys appear in any component and say nothing about the reason.
     runs.removeIf(r -> r.matches("[a-z_]+"));

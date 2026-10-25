@@ -232,19 +232,26 @@ public final class VanillaDistribution {
       if (!paths.getAsJsonObject(key).has("protocol") || !key.matches("\\d+\\.\\d+(\\.\\d+)?")) {
         continue;
       }
-      Integer protocol = protocols.get(key);
-      if (protocol == null && paths.getAsJsonObject(key).has("version")) {
-        // Keys such as "1.7" name a family; the data directory records the exact protocol.
-        JsonObject family = json(MINECRAFT_DATA
-            + paths.getAsJsonObject(key).get("version").getAsString() + "/version.json", true);
-        protocol = family.get("version").getAsInt();
-      }
+      Integer protocol = familyProtocol(paths, protocols, key);
       if (protocol == null) {
         continue;
       }
       if (protocol <= version.protocol() && protocol > bestProtocol) {
         best = key;
         bestProtocol = protocol;
+      }
+    }
+    if (best == null) {
+      // Nothing at or below (1.7.2-1.7.5, protocol 4): fall back to the oldest table of the same
+      // version family, whose packet ids are unchanged.
+      String family = version.id().replaceFirst("^(\\d+\\.\\d+).*", "$1");
+      for (String key : paths.keySet()) {
+        Integer protocol = key.equals(family) || key.startsWith(family + ".")
+            ? familyProtocol(paths, protocols, key) : null;
+        if (protocol != null && (best == null || protocol < bestProtocol)) {
+          best = key;
+          bestProtocol = protocol;
+        }
       }
     }
     if (best == null) {
@@ -255,6 +262,18 @@ public final class VanillaDistribution {
           + " (protocol " + bestProtocol + ") as the nearest table");
     }
     return best;
+  }
+
+  private Integer familyProtocol(JsonObject paths, Map<String, Integer> protocols, String key)
+      throws IOException {
+    Integer protocol = protocols.get(key);
+    if (protocol == null && paths.getAsJsonObject(key).has("version")) {
+      // Keys such as "1.7" name a family; the data directory records the exact protocol.
+      JsonObject family = json(MINECRAFT_DATA
+          + paths.getAsJsonObject(key).get("version").getAsString() + "/version.json", true);
+      protocol = family.get("version").getAsInt();
+    }
+    return protocol;
   }
 
   private Map<String, Integer> minecraftDataProtocols() throws IOException {

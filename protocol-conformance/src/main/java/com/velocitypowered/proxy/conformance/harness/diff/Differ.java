@@ -110,14 +110,21 @@ public final class Differ {
       }
     }
 
-    // Same type on both sides but not adjacent enough to have been paired: a mismatch, which a
-    // rule may still explain (the proxy re-encoding a packet asynchronously, say).
-    for (int si = 0; si < unmatchedSource.size(); si++) {
-      TraceEvent s = source.get(unmatchedSource.get(si));
-      for (int ki = 0; ki < unmatchedSink.size(); ki++) {
-        TraceEvent k = sink.get(unmatchedSink.get(ki));
-        if (s.phase() == k.phase() && s.id() == k.id()) {
+    // Same type on both sides but not adjacent enough to have been paired (the proxy re-encoded
+    // it asynchronously, say). Pair what a rule explains first, then the rest in order of
+    // appearance, so that several packets of one type are not cross-matched.
+    for (boolean toleratedOnly : new boolean[] {true, false}) {
+      for (int si = 0; si < unmatchedSource.size(); si++) {
+        TraceEvent s = source.get(unmatchedSource.get(si));
+        for (int ki = 0; ki < unmatchedSink.size(); ki++) {
+          TraceEvent k = sink.get(unmatchedSink.get(ki));
+          if (s.phase() != k.phase() || s.id() != k.id()) {
+            continue;
+          }
           Optional<String> why = rules.tolerateMismatch(ctx, s, k);
+          if (toleratedOnly && why.isEmpty()) {
+            continue;
+          }
           findings.add(new Finding(why.isPresent() ? Kind.TOLERATED : Kind.MISMATCH, ctx.dir(),
               s.phase(), ctx.name(s), unmatchedSource.get(si), unmatchedSink.get(ki),
               why.orElseGet(() -> rules.explainMismatch(ctx, s, k)

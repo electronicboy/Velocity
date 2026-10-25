@@ -34,3 +34,25 @@ reason = """\
   Velocity forwards chat messages and commands only once PlayerChatEvent / CommandExecuteEvent \
   have completed asynchronously, so serverbound packets the client sent afterwards can reach the \
   backend first. Timing-dependent, hence flaky."""
+
+[[expect]]
+proxy = "velocity"
+scenario = "play/exercise"
+versions = "1.19..1.19.2"
+signature = "MISMATCH C->S PLAY minecraft:chat"
+reason = """\
+  Velocity re-stamps unsigned 1.19-1.19.2 chat with Instant.now() when it encodes the packet \
+  (KeyedPlayerChatPacket#encode), after the asynchronous PlayerChatEvent, instead of forwarding \
+  the client's timestamp."""
+
+[[expect]]
+proxy = "velocity"
+scenario = "play/exercise"
+versions = "1.19..1.19.2"
+signature = "CHECK client.disconnected"
+detail = "out_of_order_chat"
+flaky = true
+reason = """\
+  Consequence of the re-stamp above: a command the client sent after the chat keeps its original, \
+  earlier timestamp, so vanilla sees time run backwards and kicks the player with \
+  multiplayer.disconnect.out_of_order_chat. Timing-dependent."""
