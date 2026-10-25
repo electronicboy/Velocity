@@ -27,6 +27,19 @@ import com.velocitypowered.proxy.conformance.harness.auth.FakeSessionService;
  *     half of authentication (an online-mode proxy must then reject the login)
  * @param echoKnownPacks whether to claim every known pack the server offers, as a vanilla client
  *     of the same version does; {@code false} forces the server to send full registry data
+ * @param listener reacts to transition points, or {@code null}
  */
-public record ClientOptions(String name, FakeSessionService auth, boolean echoKnownPacks) {
+public record ClientOptions(String name, FakeSessionService auth, boolean echoKnownPacks,
+                            TransitionPoint.Listener listener) {
+
+  /**
+   * Options without a transition listener.
+   *
+   * @param name the player name
+   * @param auth the session service, or {@code null}
+   * @param echoKnownPacks whether to echo known packs
+   */
+  public ClientOptions(String name, FakeSessionService auth, boolean echoKnownPacks) {
+    this(name, auth, echoKnownPacks, null);
+  }
 }

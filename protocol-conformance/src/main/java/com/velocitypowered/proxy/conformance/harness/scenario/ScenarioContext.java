@@ -42,9 +42,12 @@ import java.nio.file.Path;
  * @param rules the proxy's known transformations
  * @param traceDir where to write this cell's traces
  * @param coverage the version's coverage accumulator
+ * @param serverB the second vanilla backend, or {@code null} unless a switch scenario needs it
+ * @param tapB the relay in front of the second backend, or {@code null}
  */
 public record ScenarioContext(VanillaVersion version, PacketTable table, String[] argumentTypes,
                               VanillaServer server, TapRelay tap, FakeSessionService auth,
                               InetSocketAddress proxyAddress, ManagedProcess proxy,
-                              ProxyRules rules, Path traceDir, Coverage coverage) {
+                              ProxyRules rules, Path traceDir, Coverage coverage,
+                              VanillaServer serverB, TapRelay tapB) {
 }

@@ -90,6 +90,26 @@ public record CellResult(String version, String scenario, Outcome outcome,
    */
   public static CellResult judge(String version, String scenario, List<Failure> failures,
       List<Ledger.Expectation> expectations, List<String> tolerated, int matched, Duration took) {
+    return judge(version, scenario, failures, expectations, tolerated, matched, took, false);
+  }
+
+  /**
+   * Judges a cell's failures against the ledger.
+   *
+   * @param version the version id
+   * @param scenario the scenario id
+   * @param failures every failed check
+   * @param expectations the ledger entries that apply to this cell
+   * @param tolerated tolerated differences
+   * @param matched intact packets
+   * @param took wall-clock time
+   * @param aborted whether the scenario was cut short, in which case expectations it never
+   *     reached are not reported as fixed
+   * @return the result
+   */
+  public static CellResult judge(String version, String scenario, List<Failure> failures,
+      List<Ledger.Expectation> expectations, List<String> tolerated, int matched, Duration took,
+      boolean aborted) {
     List<Failure> unexpected = new ArrayList<>();
     List<Failure> expected = new ArrayList<>();
     List<Ledger.Expectation> used = new ArrayList<>();
@@ -106,7 +126,7 @@ public record CellResult(String version, String scenario, Outcome outcome,
       }
     }
     List<Ledger.Expectation> stale = expectations.stream()
-        .filter(e -> !used.contains(e) && !e.flaky())
+        .filter(e -> !aborted && !used.contains(e) && !e.flaky())
         .toList();
     Outcome outcome;
     if (!unexpected.isEmpty()) {

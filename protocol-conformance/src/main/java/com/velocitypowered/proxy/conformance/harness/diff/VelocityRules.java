@@ -133,6 +133,72 @@ final class VelocityRules extends CommonRules {
     return runs;
   }
 
+  @Override
+  public Optional<String> tolerateSwitchInjection(RuleContext ctx, TraceEvent sink,
+      boolean newEpoch) {
+    if (sink.dir() != Direction.CLIENTBOUND || sink.phase() != Phase.PLAY) {
+      return Optional.empty();
+    }
+    String name = ctx.name(sink);
+    if (!newEpoch && (name.equals("minecraft:player_info_remove")
+        || (name.equals("minecraft:player_info_update") && isLegacyTabRemoval(ctx, sink)))) {
+      return Optional.of("Velocity removes the old server's tab list entries when switching "
+          + "(ClientPlaySessionHandler#handleBackendJoinGame: tabList.clearAll)");
+    }
+    if (newEpoch && name.equals("minecraft:respawn")
+        && !Protocols.hasConfiguration(ctx.protocol())) {
+      return Optional.of("Velocity follows the new server's join game with respawns so the "
+          + "client resets its world (ClientPlaySessionHandler#doFastClientServerSwitch / "
+          + "#doSafeClientServerSwitch)");
+    }
+    return Optional.empty();
+  }
+
+  /**
+   * Before 1.19.3 removal is the player info packet's action 4; 1.7 has no actions, and an entry
+   * with the online flag cleared removes it.
+   */
+  private static boolean isLegacyTabRemoval(RuleContext ctx, TraceEvent sink) {
+    byte[] payload = sink.payload();
+    if (ctx.atLeast(Protocols.V1_19_3) || payload.length == 0) {
+      return false;
+    }
+    if (ctx.atLeast(Protocols.V1_8)) {
+      return payload[0] == 4;
+    }
+    try {
+      Buf buf = new Buf(payload);
+      buf.readString();
+      return !buf.readBoolean() && buf.readableBytes() == 2;
+    } catch (RuntimeException e) {
+      return false;
+    }
+  }
+
+  @Override
+  public Optional<String> tolerateSwitchMismatch(RuleContext ctx, TraceEvent source,
+      TraceEvent sink, boolean newEpoch) {
+    // Before 1.16 the join game of a switch is sent in the other dimension (0 <-> -1), the int
+    // after entity id and game mode, and a respawn then moves the client to the real one.
+    if (!newEpoch || ctx.atLeast(Protocols.V1_16)
+        || !ctx.name(source).equals("minecraft:login")) {
+      return Optional.empty();
+    }
+    byte[] a = source.payload();
+    byte[] b = sink.payload();
+    if (a.length != b.length || a.length < 9) {
+      return Optional.empty();
+    }
+    int dimension = 5;
+    if (Arrays.equals(a, 0, dimension, b, 0, dimension)
+        && Arrays.equals(a, dimension + 4, a.length, b, dimension + 4, b.length)) {
+      return Optional.of("Velocity sends the new server's join game in the other dimension and "
+          + "respawns the client into the real one (ClientPlaySessionHandler"
+          + "#doFastClientServerSwitch)");
+    }
+    return Optional.empty();
+  }
+
   private static boolean sameSuggestionsInAnyOrder(byte[] source, byte[] sink) {
     try {
       return readSuggestions(source).equals(readSuggestions(sink));

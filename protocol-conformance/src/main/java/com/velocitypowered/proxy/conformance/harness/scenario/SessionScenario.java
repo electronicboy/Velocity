@@ -52,10 +52,10 @@ import java.util.regex.Pattern;
 public abstract class SessionScenario implements Scenario {
 
   protected static final Duration LOGIN_TIMEOUT = Duration.ofSeconds(30);
-  private static final Duration MARKER_TIMEOUT = Duration.ofSeconds(20);
-  private static final Pattern PROXY_TROUBLE =
+  static final Duration MARKER_TIMEOUT = Duration.ofSeconds(20);
+  static final Pattern PROXY_TROUBLE =
       Pattern.compile("(?i)(exception|\\berror\\b|failed to decode|unable to decode)");
-  private static final Pattern BACKEND_TROUBLE = Pattern.compile(
+  static final Pattern BACKEND_TROUBLE = Pattern.compile(
       "(?i)(internal exception|decoderexception|failed to (decode|handle)|packet processing|"
           + "error receiving packet|bad packet)");
 
@@ -108,6 +108,7 @@ public abstract class SessionScenario implements Scenario {
           options(ctx), LOGIN_TIMEOUT);
     } catch (ClientSession.LoginRejectedException e) {
       out.fail("CHECK login.rejected", e.getMessage());
+      out.abort();
       checkLogs(ctx, proxyLines, backendLines, out);
       return out;
     } catch (IOException e) {
@@ -121,6 +122,7 @@ public abstract class SessionScenario implements Scenario {
         out.fail("CHECK backend.connect", "the proxy never connected to the backend; client is in "
             + client.phase() + client.disconnectReason().map(r -> ", disconnected: " + r).orElse(""));
         writeTraces(ctx, client, null, List.of());
+        out.abort();
         checkLogs(ctx, proxyLines, backendLines, out);
         return out;
       }
@@ -128,6 +130,7 @@ public abstract class SessionScenario implements Scenario {
         out.fail("CHECK client.play", "never reached play: "
             + client.disconnectReason().orElse("no disconnect reason"));
         writeTraces(ctx, client, backend.get(), List.of());
+        out.abort();
         checkLogs(ctx, proxyLines, backendLines, out);
         return out;
       }
@@ -205,7 +208,7 @@ public abstract class SessionScenario implements Scenario {
     return all;
   }
 
-  private static List<Finding> compare(ScenarioContext ctx, RuleContext rc,
+  static List<Finding> compare(ScenarioContext ctx, RuleContext rc,
       List<TraceEvent> source, List<TraceEvent> sink, ScenarioOutput out) {
     Differ.Result result = Differ.compare(rc, source, sink, ctx.rules());
     out.addMatched(result.matched());
@@ -225,7 +228,7 @@ public abstract class SessionScenario implements Scenario {
    * Keeps configuration and play packets up to and including the marker. Login and handshake
    * are between each side and the proxy, so they are not comparable.
    */
-  private static List<TraceEvent> window(List<TraceEvent> events, int cut) {
+  static List<TraceEvent> window(List<TraceEvent> events, int cut) {
     List<TraceEvent> out = new ArrayList<>();
     int end = cut < 0 ? events.size() : Math.min(events.size(), cut + 1);
     for (int i = 0; i < end; i++) {
@@ -237,7 +240,7 @@ public abstract class SessionScenario implements Scenario {
     return out;
   }
 
-  private static int indexOf(List<TraceEvent> events, String token) {
+  static int indexOf(List<TraceEvent> events, String token) {
     byte[] needle = token.getBytes(StandardCharsets.UTF_8);
     for (int i = 0; i < events.size(); i++) {
       if (ClientSession.contains(events.get(i).payload(), needle)) {
@@ -247,7 +250,7 @@ public abstract class SessionScenario implements Scenario {
     return -1;
   }
 
-  private static int awaitIndex(Trace trace, Direction dir, String token)
+  static int awaitIndex(Trace trace, Direction dir, String token)
       throws InterruptedException {
     long deadline = System.nanoTime() + MARKER_TIMEOUT.toNanos();
     while (System.nanoTime() < deadline) {
@@ -262,16 +265,49 @@ public abstract class SessionScenario implements Scenario {
 
   private static void checkLogs(ScenarioContext ctx, int proxyFrom, int backendFrom,
       ScenarioOutput out) {
-    for (String line : ctx.proxy().linesSince(proxyFrom)) {
-      if (PROXY_TROUBLE.matcher(line).find()) {
-        out.fail("CHECK proxy.log", line.strip());
-      }
+    for (String finding : logFindings(ctx.proxy().linesSince(proxyFrom), PROXY_TROUBLE)) {
+      out.fail("CHECK proxy.log", finding);
     }
-    for (String line : ctx.server().process().linesSince(backendFrom)) {
-      if (BACKEND_TROUBLE.matcher(line).find()) {
-        out.fail("CHECK backend.log", line.strip());
-      }
+    for (String finding : logFindings(ctx.server().process().linesSince(backendFrom),
+        BACKEND_TROUBLE)) {
+      out.fail("CHECK backend.log", finding);
     }
+  }
+
+  /**
+   * Picks the troubling lines out of a console log, folding each into one finding together with
+   * the exception lines that follow it, so a stack trace is one finding rather than several.
+   *
+   * @param lines the console lines
+   * @param trouble what counts as trouble
+   * @return one detail string per finding
+   */
+  static List<String> logFindings(List<String> lines, Pattern trouble) {
+    List<String> findings = new ArrayList<>();
+    for (int i = 0; i < lines.size(); i++) {
+      if (!trouble.matcher(lines.get(i)).find()) {
+        continue;
+      }
+      StringBuilder detail = new StringBuilder(lines.get(i).strip());
+      int j = i + 1;
+      for (; j < lines.size() && j <= i + 3; j++) {
+        String next = lines.get(j).strip();
+        if (!(next.startsWith("at ") || next.startsWith("Caused by") || next.matches(
+            "^[a-z][\\w.]*(Exception|Error)\\b.*"))) {
+          break;
+        }
+        detail.append(" | ").append(next);
+      }
+      findings.add(detail.toString());
+      // Skip the rest of this stack trace.
+      while (j < lines.size() && (lines.get(j).strip().startsWith("at ")
+          || lines.get(j).strip().startsWith("...") || lines.get(j).strip().startsWith("Caused by")
+          || lines.get(j).strip().startsWith("Suppressed"))) {
+        j++;
+      }
+      i = j - 1;
+    }
+    return findings;
   }
 
   private void writeTraces(ScenarioContext ctx, ClientSession client, TapRelay.Session backend,

@@ -58,7 +58,28 @@ scripted client ──> proxy under test ──> tap relay ──> vanilla serve
   minecraft-data (older versions), normalised to Mojang's names.
 
 Scenarios: `status/ping`, `play/exercise`, `config/full-registries` (1.20.5+), `auth/online`,
-`auth/not-joined`.
+`auth/not-joined`, and the server-transition scenarios below.
+
+### Server transitions
+
+`switch/basic` (A → B), `switch/round-trip` (A → B → A) and `switch/rapid` (A → B, straight back
+when B's join game arrives) run a second vanilla backend and switch with the proxy's `/server`
+command. They check:
+
+- each backend session is transparent on its own (the client's stream is split at the
+  configuration start, or the second join game before 1.20.2); packets the old server sends after
+  the switch was requested are reported as tolerated, never silently;
+- **probe payloads**: the client sends a custom payload with a unique token at each step of the
+  transition (`BEFORE_SWITCH`, `START_CONFIGURATION`, `CONFIGURATION_ENTERED`,
+  `FIRST_CONFIGURATION_PACKET`, `FINISH_CONFIGURATION`, `PLAY_ENTERED`, `JOIN_GAME`). Each must
+  reach exactly one backend, and those sent during configuration must reach the backend being
+  configured, in its configuration phase. Failures read `CHECK probe.dropped <point>`,
+  `probe.duplicated` or `probe.misrouted`;
+- **replay**: the new backend receives the client's brand and latest client information
+  byte-for-byte (a vanilla client does not resend them when it re-enters configuration);
+- no configuration start or join game inside an open bundle, no stuck switch, no disconnect.
+
+Per-backend traces land in `traces/switch_*/backend-<n>-<server>.trace`.
 
 ## When it fails
 

@@ -92,6 +92,34 @@ public interface ProxyRules {
   }
 
   /**
+   * Decides whether a packet the proxy originated around a server switch is expected.
+   *
+   * @param ctx the comparison context
+   * @param sink what arrived
+   * @param newEpoch whether it belongs to the session being switched to (otherwise to the one
+   *     being left)
+   * @return the justification, if tolerated
+   */
+  default Optional<String> tolerateSwitchInjection(RuleContext ctx, TraceEvent sink,
+      boolean newEpoch) {
+    return Optional.empty();
+  }
+
+  /**
+   * Decides whether a packet the proxy rewrote around a server switch is expected.
+   *
+   * @param ctx the comparison context
+   * @param source what the backend sent
+   * @param sink what arrived
+   * @param newEpoch whether it belongs to the session being switched to
+   * @return the justification, if tolerated
+   */
+  default Optional<String> tolerateSwitchMismatch(RuleContext ctx, TraceEvent source,
+      TraceEvent sink, boolean newEpoch) {
+    return Optional.empty();
+  }
+
+  /**
    * Returns the rules for a proxy kind.
    *
    * @param kind {@code velocity}, {@code waterfall} or {@code none}

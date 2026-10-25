@@ -24,6 +24,7 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A proxy jar run as a black box: configured through its own config file, started as a child
@@ -31,15 +32,25 @@ import java.util.List;
  */
 public abstract class ProxyUnderTest implements AutoCloseable {
 
+  /** The name of the backend players join first. */
+  public static final String PRIMARY = "conformance";
+  /** The name of the backend server-switch scenarios move players to. */
+  public static final String SECONDARY = "conformance-b";
+
   /**
    * How the proxy should be configured for a run.
    *
    * @param port the port to listen on
-   * @param backend the address of the single backend (the tap relay)
+   * @param backends backend names to addresses (the tap relays); the first is joined first
    * @param onlineMode whether to authenticate players
    * @param hasJoined the session service's {@code hasJoined} endpoint
    */
-  public record Settings(int port, InetSocketAddress backend, boolean onlineMode, URI hasJoined) {
+  public record Settings(int port, Map<String, InetSocketAddress> backends, boolean onlineMode,
+                         URI hasJoined) {
+
+    public String primary() {
+      return backends.keySet().iterator().next();
+    }
   }
 
   protected final Path jar;

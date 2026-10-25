@@ -29,6 +29,19 @@ public final class ScenarioOutput {
   private final List<Failure> failures = new ArrayList<>();
   private final List<String> tolerated = new ArrayList<>();
   private int matched;
+  private boolean aborted;
+
+  /**
+   * Marks the scenario as cut short by a failure, so expectations it never got far enough to
+   * test are not mistaken for fixes.
+   */
+  public void abort() {
+    aborted = true;
+  }
+
+  public boolean aborted() {
+    return aborted;
+  }
 
   /**
    * Records a failed check.

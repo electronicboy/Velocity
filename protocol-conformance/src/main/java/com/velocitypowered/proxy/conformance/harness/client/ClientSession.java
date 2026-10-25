@@ -51,6 +51,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 import javax.crypto.Cipher;
 
@@ -83,6 +84,8 @@ public final class ClientSession implements AutoCloseable {
   private volatile String disconnectReason;
   private volatile boolean inPlay;
   private volatile boolean playerLoadedSent;
+  private volatile boolean firstConfigurationPacket;
+  private final AtomicInteger joins = new AtomicInteger();
   private volatile Throwable readerFailure;
   private int sequence;
   private double posX;
@@ -215,7 +218,7 @@ public final class ClientSession implements AutoCloseable {
           login = parseLoginSuccess(buf, encrypted);
           if (Protocols.hasConfiguration(protocol)) {
             send(Phase.LOGIN, "minecraft:login_acknowledged", new byte[0]);
-            onConfigurationStart();
+            onConfigurationStart(true);
           } else {
             inPlay = true;
           }
@@ -298,11 +301,22 @@ public final class ClientSession implements AutoCloseable {
     return new LoginResult(uuid, name, properties, encrypted, tracker.compressionThreshold());
   }
 
-  private void onConfigurationStart() throws IOException {
-    // A vanilla client announces its brand and options as soon as configuration begins (or, before
-    // 1.20.2, as soon as it joins).
-    send(Phase.CONFIGURATION, "minecraft:custom_payload", out.brand());
-    send(Phase.CONFIGURATION, "minecraft:client_information", out.clientInformation());
+  private void onConfigurationStart(boolean initial) throws IOException {
+    // A vanilla client announces its brand and options once, right after login. Re-entering
+    // configuration later (a server switch) sends only the acknowledgement: replaying brand and
+    // options to the new server is the proxy's job.
+    if (initial) {
+      send(Phase.CONFIGURATION, "minecraft:custom_payload", out.brand());
+      send(Phase.CONFIGURATION, "minecraft:client_information", out.clientInformation());
+    }
+    firstConfigurationPacket = true;
+    fire(TransitionPoint.CONFIGURATION_ENTERED);
+  }
+
+  private void fire(TransitionPoint point) throws IOException {
+    if (options.listener() != null) {
+      options.listener().on(point, this);
+    }
   }
 
   private void readLoop() {
@@ -331,6 +345,10 @@ public final class ClientSession implements AutoCloseable {
     String name = table.describe(phase, CLIENTBOUND, e.id());
     Buf buf = new Buf(e.payload());
     if (phase == Phase.CONFIGURATION) {
+      if (firstConfigurationPacket) {
+        firstConfigurationPacket = false;
+        fire(TransitionPoint.FIRST_CONFIGURATION_PACKET);
+      }
       switch (name) {
         case "minecraft:keep_alive" -> send(phase, "minecraft:keep_alive", e.payload());
         case "minecraft:ping" -> send(phase, "minecraft:pong", e.payload());
@@ -342,8 +360,10 @@ public final class ClientSession implements AutoCloseable {
         case "minecraft:code_of_conduct" ->
             send(phase, "minecraft:accept_code_of_conduct", new byte[0]);
         case "minecraft:finish_configuration" -> {
+          fire(TransitionPoint.FINISH_CONFIGURATION);
           send(phase, "minecraft:finish_configuration", new byte[0]);
           inPlay = true;
+          fire(TransitionPoint.PLAY_ENTERED);
         }
         case "minecraft:disconnect" -> disconnected(e);
         default -> {
@@ -358,18 +378,23 @@ public final class ClientSession implements AutoCloseable {
       case "minecraft:keep_alive" -> send(phase, "minecraft:keep_alive", e.payload());
       case "minecraft:ping" -> send(phase, "minecraft:pong", e.payload());
       case "minecraft:login" -> {
+        // Before 1.20.2 a vanilla client sends brand and options on every join game, including
+        // the one a proxy forwards on a server switch.
         if (!Protocols.hasConfiguration(protocol)) {
           send(phase, "minecraft:custom_payload", out.brand());
           send(phase, "minecraft:client_information", out.clientInformation());
         }
+        joins.incrementAndGet();
+        fire(TransitionPoint.JOIN_GAME);
       }
       case "minecraft:player_position" -> onPosition(buf);
       case "minecraft:chunk_batch_finished" ->
           send(phase, "minecraft:chunk_batch_received", out.chunkBatchReceived());
       case "minecraft:start_configuration" -> {
+        fire(TransitionPoint.START_CONFIGURATION);
         inPlay = false;
         send(phase, "minecraft:configuration_acknowledged", new byte[0]);
-        onConfigurationStart();
+        onConfigurationStart(false);
       }
       case "minecraft:set_health" -> {
         if (buf.readFloat() <= 0f) {
@@ -617,6 +642,34 @@ public final class ClientSession implements AutoCloseable {
 
   public boolean inPlay() {
     return inPlay;
+  }
+
+  /**
+   * Returns how many join game packets the client has received; a server switch adds one.
+   *
+   * @return the join count
+   */
+  public int joins() {
+    return joins.get();
+  }
+
+  /**
+   * Waits until the client has received {@code count} join game packets.
+   *
+   * @param count the join count to wait for
+   * @param timeout how long to wait
+   * @return whether it got there
+   * @throws InterruptedException if interrupted
+   */
+  public boolean awaitJoins(int count, Duration timeout) throws InterruptedException {
+    long deadline = System.nanoTime() + timeout.toNanos();
+    while (joins.get() < count) {
+      if (closed.get() || System.nanoTime() > deadline) {
+        return false;
+      }
+      Thread.sleep(20);
+    }
+    return true;
   }
 
   @Override

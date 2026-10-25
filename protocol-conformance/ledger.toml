@@ -56,3 +56,73 @@ reason = """\
   Consequence of the re-stamp above: a command the client sent after the chat keeps its original, \
   earlier timestamp, so vanilla sees time run backwards and kicks the player with \
   multiplayer.disconnect.out_of_order_chat. Timing-dependent."""
+
+# --- Server transitions (switch/*) ------------------------------------------------------------
+
+[[expect]]
+proxy = "velocity"
+scenario = "switch/*"
+versions = ">=1.20.2"
+signature = "CHECK probe.dropped PLAY_ENTERED"
+issue = 1766
+reason = """\
+  Plugin messages the client sends between finishing configuration and the backend's join game \
+  are dropped: ClientPlaySessionHandler#handle(PluginMessagePacket) only falls back to the \
+  connection in flight for the legacy Forge handshake channel, and getConnectedServer() is null \
+  until the join game has been processed."""
+
+[[expect]]
+proxy = "velocity"
+scenario = "switch/*"
+versions = ">=1.20.2"
+signature = "CHECK probe.dropped START_CONFIGURATION"
+reason = """\
+  Plugin messages the client sends between the proxy starting a switch and the client \
+  acknowledging configuration are dropped: ClientPlaySessionHandler#doSwitch clears the \
+  connected server and disconnects the old backend before sending start_configuration, so the \
+  old server can no longer receive them and the new one is not wired up yet."""
+
+[[expect]]
+proxy = "velocity"
+scenario = "switch/*"
+versions = ">=1.20.2"
+signature = "CHECK probe.dropped CONFIGURATION_ENTERED"
+flaky = true
+reason = """\
+  A plugin message sent right after the login acknowledgement, before the proxy has a backend \
+  connection in flight, is silently dropped by ClientConfigSessionHandler#handle(PluginMessagePacket). \
+  Timing-dependent: once the connection exists it is forwarded (or crashes, see below)."""
+
+[[expect]]
+proxy = "velocity"
+scenario = "switch/*"
+versions = ">=1.20.2"
+signature = "CHECK proxy.log"
+detail = "Not connected to server"
+flaky = true
+reason = """\
+  Same window, worse outcome: when the connection in flight exists but is not connected yet, \
+  ClientConfigSessionHandler#handle(PluginMessagePacket) calls ensureConnected(), which throws \
+  IllegalStateException and disconnects the player with "An internal error occurred in your \
+  connection". Clients whose mods send payloads as soon as configuration starts hit this."""
+
+[[expect]]
+proxy = "velocity"
+scenario = "switch/*"
+versions = ">=1.20.2"
+signature = "CHECK client.play"
+detail = "internal error occurred"
+flaky = true
+reason = "The disconnect caused by the ensureConnected() exception above."
+
+[[expect]]
+proxy = "velocity"
+scenario = "switch/rapid"
+versions = "<1.20.2"
+signature = "CHECK switch.ignored"
+flaky = true
+reason = """\
+  Chat and commands the client sends right after a switch's join game are silently dropped: \
+  ClientPlaySessionHandler's chat and command handlers return early while getCurrentServer() is \
+  empty, and the connected server is only set once ServerConnectedEvent has completed \
+  asynchronously. The rapid scenario's second /server is lost this way. Timing-dependent."""

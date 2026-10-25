@@ -61,6 +61,15 @@ public interface Scenario {
   }
 
   /**
+   * Returns whether the scenario needs a second vanilla backend to switch to.
+   *
+   * @return whether a second backend is needed
+   */
+  default boolean needsSecondBackend() {
+    return false;
+  }
+
+  /**
    * Runs the scenario.
    *
    * @param ctx everything the scenario may use

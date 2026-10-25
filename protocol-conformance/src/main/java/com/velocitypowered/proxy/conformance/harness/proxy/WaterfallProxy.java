@@ -36,7 +36,13 @@ final class WaterfallProxy extends ProxyUnderTest {
 
   @Override
   protected void configure(Path dir, Settings settings) throws HarnessException {
-    String backend = settings.backend().getHostString() + ":" + settings.backend().getPort();
+    StringBuilder servers = new StringBuilder();
+    settings.backends().forEach((name, address) -> servers.append("""
+          %s:
+            address: %s:%d
+            restricted: false
+            motd: %s
+        """.formatted(name, address.getHostString(), address.getPort(), name)));
     String config = """
         online_mode: %s
         ip_forward: false
@@ -51,22 +57,18 @@ final class WaterfallProxy extends ProxyUnderTest {
           motd: conformance
           max_players: 10
           priorities:
-          - conformance
+          - %s
           force_default_server: true
           ping_passthrough: false
           tab_list: GLOBAL_PING
           forced_hosts: {}
         servers:
-          conformance:
-            address: %s
-            restricted: false
-            motd: conformance
-        permissions:
+        %spermissions:
           default:
           - bungeecord.command.server
           - bungeecord.command.list
         groups: {}
-        """.formatted(settings.onlineMode(), settings.port(), backend);
+        """.formatted(settings.onlineMode(), settings.port(), settings.primary(), servers);
     try {
       Files.createDirectories(dir);
       Files.writeString(dir.resolve("config.yml"), config, StandardCharsets.UTF_8);

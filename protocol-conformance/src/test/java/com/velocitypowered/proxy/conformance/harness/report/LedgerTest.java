@@ -213,4 +213,35 @@ class LedgerTest {
     assertTrue(dropped.matches("DROPPED S->C PLAY minecraft:keep_alive", "anything"));
     assertFalse(dropped.matches("MISMATCH S->C PLAY minecraft:keep_alive", "anything"));
   }
+
+  @Test
+  void scenarioGlobsAndListsSelectCells() {
+    Ledger ledger = Ledger.parse("""
+        [[expect]]
+        scenario = "switch/*, play/exercise"
+        signature = "CHECK probe.dropped"
+        reason = "r"
+        """);
+    assertEquals(1, ledger.expectations("velocity", "switch/basic", "1.21").size());
+    assertEquals(1, ledger.expectations("velocity", "switch/rapid", "1.21").size());
+    assertEquals(1, ledger.expectations("velocity", "play/exercise", "1.21").size());
+    assertEquals(0, ledger.expectations("velocity", "status/ping", "1.21").size());
+  }
+
+  @Test
+  void abortedCellDoesNotReportUnreachedExpectationsAsFixed() {
+    Ledger ledger = Ledger.parse("""
+        [[expect]]
+        signature = "CHECK probe.dropped"
+        reason = "r"
+        """);
+    List<Ledger.Expectation> expectations = ledger.expectations("velocity", "switch/basic", "1");
+    List<Failure> failures = List.of(new Failure("CHECK client.play", "cut short"));
+    assertEquals(Outcome.REGRESSION, CellResult.judge("1", "switch/basic", failures,
+        expectations, List.of(), 0, Duration.ZERO, true).outcome());
+    assertEquals(Outcome.PASS, CellResult.judge("1", "switch/basic", List.of(),
+        expectations, List.of(), 0, Duration.ZERO, true).outcome());
+    assertEquals(Outcome.UNEXPECTED_PASS, CellResult.judge("1", "switch/basic", List.of(),
+        expectations, List.of(), 0, Duration.ZERO, false).outcome());
+  }
 }

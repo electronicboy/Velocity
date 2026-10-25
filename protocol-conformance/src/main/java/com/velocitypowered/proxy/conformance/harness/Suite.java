@@ -32,6 +32,7 @@ import com.velocitypowered.proxy.conformance.harness.scenario.Scenario;
 import com.velocitypowered.proxy.conformance.harness.scenario.ScenarioContext;
 import com.velocitypowered.proxy.conformance.harness.scenario.ScenarioOutput;
 import com.velocitypowered.proxy.conformance.harness.scenario.StatusScenario;
+import com.velocitypowered.proxy.conformance.harness.scenario.SwitchScenario;
 import com.velocitypowered.proxy.conformance.harness.tap.TapRelay;
 import com.velocitypowered.proxy.conformance.harness.vanilla.JavaRuntimes;
 import com.velocitypowered.proxy.conformance.harness.vanilla.VanillaDistribution;
@@ -47,7 +48,9 @@ import java.net.ServerSocket;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
 
@@ -66,7 +69,10 @@ public final class Suite {
       new ExerciseScenario(),
       new FullRegistriesScenario(),
       new OnlineLoginScenario(),
-      new AuthRejectScenario());
+      new AuthRejectScenario(),
+      SwitchScenario.basic(),
+      SwitchScenario.roundTrip(),
+      SwitchScenario.rapid());
 
   private final SuiteConfig config;
   private final VanillaDistribution distribution;
@@ -134,15 +140,22 @@ public final class Suite {
       try (Backend server = new Backend(version, jar, java.forMajor(version.javaMajor()),
           dir.resolve("vanilla"), freePort(), freePort());
           TapRelay tap = new TapRelay(new InetSocketAddress(InetAddress.getLoopbackAddress(),
-              server.port), table, version.protocol())) {
+              server.port), table, version.protocol());
+          // A second backend only when a server-switch scenario will run.
+          Backend serverB = scenarios.stream()
+              .anyMatch(s -> s.needsSecondBackend() && s.appliesTo(version))
+              ? new Backend(version, jar, java.forMajor(version.javaMajor()),
+                  dir.resolve("vanilla-b"), freePort(), freePort()) : null;
+          TapRelay tapB = serverB == null ? null : new TapRelay(new InetSocketAddress(
+              InetAddress.getLoopbackAddress(), serverB.port), table, version.protocol())) {
+        Backends backends = new Backends(server, tap, serverB, tapB);
         for (boolean online : new boolean[] {false, true}) {
           List<Scenario> group = scenarios.stream()
               .filter(s -> s.onlineMode() == online)
               .filter(s -> s.appliesTo(version))
               .toList();
           if (!group.isEmpty()) {
-            runGroup(version, table, argumentTypes, server, tap, auth, online, group, coverage,
-                dir);
+            runGroup(version, table, argumentTypes, backends, auth, online, group, coverage, dir);
           }
         }
         for (Scenario s : scenarios) {
@@ -165,15 +178,24 @@ public final class Suite {
     reporter.write();
   }
 
+  private record Backends(Backend server, TapRelay tap, Backend serverB, TapRelay tapB) {
+  }
+
   private void runGroup(VanillaVersion version, PacketTable table, String[] argumentTypes,
-      Backend server, TapRelay tap, FakeSessionService auth, boolean online,
+      Backends backends, FakeSessionService auth, boolean online,
       List<Scenario> group, Coverage coverage, Path dir) throws HarnessException {
     Path proxyDir = dir.resolve(online ? "proxy-online" : "proxy-offline");
     int port = freePort();
     try (ProxyUnderTest proxy = ProxyUnderTest.create(config.proxyKind(), config.proxyJar(),
         config.proxyJava())) {
-      proxy.start(proxyDir, new ProxyUnderTest.Settings(port,
-          new InetSocketAddress(InetAddress.getLoopbackAddress(), tap.port()), online,
+      Map<String, InetSocketAddress> servers = new LinkedHashMap<>();
+      servers.put(ProxyUnderTest.PRIMARY,
+          new InetSocketAddress(InetAddress.getLoopbackAddress(), backends.tap().port()));
+      if (backends.tapB() != null) {
+        servers.put(ProxyUnderTest.SECONDARY,
+            new InetSocketAddress(InetAddress.getLoopbackAddress(), backends.tapB().port()));
+      }
+      proxy.start(proxyDir, new ProxyUnderTest.Settings(port, servers, online,
           auth.hasJoinedUri()));
       InetSocketAddress address = new InetSocketAddress(InetAddress.getLoopbackAddress(), port);
       for (Scenario scenario : group) {
@@ -182,15 +204,18 @@ public final class Suite {
         CellResult result;
         try {
           ScenarioContext ctx = new ScenarioContext(version, table, argumentTypes,
-              server.ensureRunning(), tap, auth, address, proxy.process(), rules,
-              dir.resolve("traces").resolve(scenario.id().replace('/', '_')), coverage);
+              backends.server().ensureRunning(), backends.tap(), auth, address, proxy.process(),
+              rules, dir.resolve("traces").resolve(scenario.id().replace('/', '_')), coverage,
+              backends.serverB() == null ? null : backends.serverB().ensureRunning(),
+              backends.tapB());
           ScenarioOutput out = scenario.run(ctx);
           List<Ledger.Expectation> expectations = ledger
               .expectations(config.proxyKind(), scenario.id(), version.id()).stream()
               .filter(e -> scenario.comparesTraffic() || e.signature().startsWith("CHECK"))
               .toList();
           result = CellResult.judge(version.id(), scenario.id(), out.failures(), expectations,
-              out.tolerated(), out.matched(), Duration.between(started, Instant.now()));
+              out.tolerated(), out.matched(), Duration.between(started, Instant.now()),
+              out.aborted());
         } catch (HarnessException | RuntimeException e) {
           result = CellResult.error(version.id(), scenario.id(), trace(e),
               Duration.between(started, Instant.now()));

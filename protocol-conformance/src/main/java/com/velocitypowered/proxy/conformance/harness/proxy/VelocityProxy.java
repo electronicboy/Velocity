@@ -65,9 +65,9 @@ final class VelocityProxy extends ProxyUnderTest {
     config.set("prevent-client-proxy-connections", false);
 
     Config servers = config.createSubConfig();
-    servers.set("conformance", settings.backend().getHostString() + ":"
-        + settings.backend().getPort());
-    servers.set("try", List.of("conformance"));
+    settings.backends().forEach((name, address) ->
+        servers.set(List.of(name), address.getHostString() + ":" + address.getPort()));
+    servers.set("try", List.of(settings.primary()));
     config.set("servers", servers);
     config.set("forced-hosts", config.createSubConfig());
 

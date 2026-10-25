@@ -323,3 +323,47 @@ configuration, not play; that is not an id error (they pass through undecoded).
   build.
 - A field-level decoder (ProtoDef over minecraft-data) for richer mismatch reports.
 - Serverbound coverage beyond the scripted set; the coverage report lists what is missing.
+
+## 12. Server transitions (added 2026-10-25)
+
+Server switches are the other main source of breakage in the tracker: plugin messages dropped
+while no server is connected (#1766), client brand and settings not reaching the next server
+(#1212, #1015), packets lost right after JoinGame (#1873), players stuck in reconfiguration
+(#1741), configuration-ending packets inside an open bundle (#1384), fast repeated switches
+(#1334), mod payloads lost around configuration (#1284, #1191). A vanilla backend cannot reproduce
+every timing, but it can pin down the invariants.
+
+### Setup
+
+A second vanilla server (B) with its own tap runs beside A; the proxy knows both and tries A
+first. The client switches with the proxy's `/server` command, which Velocity and Waterfall both
+provide. A vanilla 1.20.2+ client re-enters configuration on a switch *without* re-sending its
+brand or settings (verified against the client source: `handleConfigurationStart` sends only the
+acknowledgement), so the scripted client does the same; replaying them is the proxy's job.
+
+### Checks
+
+1. **Per-backend transparency.** The client's stream is split at the transition (the
+   configuration start on 1.20.2+, the second JoinGame before). The part before is diffed against
+   A's session, the part after against B's, with the usual proxy rules. Packets A sends after the
+   switch was requested may be dropped — the client can no longer accept them — and are reported
+   as tolerated, never silently.
+2. **Probe conservation.** The client sends a custom payload carrying a unique token at each step
+   of the transition: before acknowledging configuration, right after entering it, on B's first
+   configuration packet, before finishing, after finishing, and on B's JoinGame. Every token must
+   reach exactly one backend; tokens sent during configuration must reach B during B's
+   configuration phase.
+3. **Replay.** B must receive the client's brand and its most recent client information,
+   byte-identical.
+4. **Liveness and hygiene.** The switch completes within the deadline, nobody is disconnected,
+   neither backend logs a decode error, and the client never receives a configuration-starting
+   packet inside an open bundle.
+
+### Scenarios
+
+- `switch/basic` — A → B.
+- `switch/round-trip` — A → B → A (a second session on A's tap).
+- `switch/rapid` — A → B, and back to A the moment B's JoinGame arrives.
+
+Kicks during configuration (#1832, #1603) cannot be provoked from a vanilla server at the right
+moment and stay with the synthetic-backend design.

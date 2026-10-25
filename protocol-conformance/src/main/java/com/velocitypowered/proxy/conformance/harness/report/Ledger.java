@@ -40,7 +40,7 @@ public final class Ledger {
    * A known failure.
    *
    * @param proxy the proxy kind it applies to, or {@code *}
-   * @param scenario the scenario id, or {@code *}
+   * @param scenario scenario ids, comma-separated, each optionally a {@code prefix*}
    * @param versions the versions it applies to
    * @param signature a prefix of the failure signature
    * @param detail a substring the failure detail must contain, or empty
@@ -62,8 +62,23 @@ public final class Ledger {
      */
     public boolean appliesTo(String proxyKind, String scenarioId, String version) {
       return (proxy.equals("*") || proxy.equals(proxyKind))
-          && (scenario.equals("*") || scenario.equals(scenarioId))
+          && scenarioMatches(scenarioId)
           && versions.contains(version);
+    }
+
+    /**
+     * Scenarios are a comma-separated list of ids, each optionally ending in {@code *} to match
+     * a prefix ({@code switch/*}).
+     */
+    private boolean scenarioMatches(String scenarioId) {
+      for (String pattern : scenario.split(",")) {
+        String p = pattern.strip();
+        if (p.equals("*") || p.equals(scenarioId)
+            || (p.endsWith("*") && scenarioId.startsWith(p.substring(0, p.length() - 1)))) {
+          return true;
+        }
+      }
+      return false;
     }
 
     /**
