@@ -252,9 +252,21 @@ public final class Suite {
       this.jar = jar;
       this.java = java;
       this.dir = dir;
+      VanillaServer started;
+      try {
+        started = VanillaServer.start(version, jar, java, dir, port, rconPort);
+      } catch (HarnessException first) {
+        // Older servers occasionally announce RCON yet refuse every connection during long runs;
+        // one restart on fresh ports clears it. A second failure is a genuine error.
+        System.out.println("[suite] vanilla " + version.id() + " failed to start ("
+            + first.getMessage() + "); retrying once");
+        port = freePort();
+        rconPort = freePort();
+        started = VanillaServer.start(version, jar, java, dir, port, rconPort);
+      }
       this.port = port;
       this.rconPort = rconPort;
-      this.server = VanillaServer.start(version, jar, java, dir, port, rconPort);
+      this.server = started;
     }
 
     VanillaServer ensureRunning() throws HarnessException {

@@ -367,3 +367,20 @@ acknowledgement), so the scripted client does the same; replaying them is the pr
 
 Kicks during configuration (#1832, #1603) cannot be provoked from a vanilla server at the right
 moment and stay with the synthetic-backend design.
+
+### Results (2026-10-25)
+
+All 52 supported versions × 3 switch scenarios: everything passes or fails only as the ledger
+expects. Defects recorded in the ledger:
+
+| Finding | Versions |
+|---|---|
+| Plugin messages sent between finishing configuration and the backend's join game are dropped (#1766). | 1.20.2+ |
+| Plugin messages sent while a switch starts are dropped: `doSwitch` disconnects the old server before the client is told to reconfigure. | 1.20.2+ |
+| A plugin message sent right after login, before the backend connection is up, is dropped or throws `Not connected to server!` and kicks the player ("An internal error occurred"). Roughly half the sessions on 1.21.11 and 26.3. | 1.20.2+ |
+| Chat and commands sent right after a switch's join game are dropped while `getCurrentServer()` is empty. | <1.20.2 |
+
+Brand and settings replay to the new server held on every version. Harness lessons: separate
+player names per scenario (the proxy may not have finished disconnecting the previous one), the
+proxy's own keep-alives during a switch must be recognised in both directions, and an RCON listener
+on old servers occasionally refuses connections during long runs (one restart on fresh ports).

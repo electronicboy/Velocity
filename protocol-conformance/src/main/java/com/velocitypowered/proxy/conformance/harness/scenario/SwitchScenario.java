@@ -61,6 +61,7 @@ public final class SwitchScenario implements Scenario {
   private static final Duration SETTLE = Duration.ofMillis(1500);
 
   private final List<byte[]> proxyKeepAlives = new ArrayList<>();
+  private long switchLeftAt = Long.MAX_VALUE;
   private final String id;
   private final String player;
   private final List<String> hops;
@@ -366,6 +367,7 @@ public final class SwitchScenario implements Scenario {
       List<TraceEvent> clientSent = epoch < sentEpochs.size() ? sentEpochs.get(epoch) : List.of();
       List<TraceEvent> backendGot = SessionScenario.window(
           cut(trace.events(Direction.SERVERBOUND), last ? cuts[1] : -1), -1);
+      switchLeftAt = leftAt;
       all.addAll(compare(ctx, Direction.SERVERBOUND, epoch, last, epochServers.get(epoch),
           clientSent,
           backendGot, Long.MAX_VALUE, probes, replay, out));
@@ -431,6 +433,10 @@ public final class SwitchScenario implements Scenario {
       } else if (f.kind() == Finding.Kind.DROPPED && dir == Direction.SERVERBOUND
           && isProxyKeepAlive(ctx, Direction.CLIENTBOUND, event)) {
         out.tolerate(where + " the client's answer to the proxy's own keep-alive is consumed");
+      } else if (f.kind() == Finding.Kind.DROPPED && dir == Direction.SERVERBOUND
+          && isKeepAlive(ctx, dir, event) && event.nanos() >= switchLeftAt) {
+        out.tolerate(where + " the client's answer to a keep-alive from the server it is leaving "
+            + "was sent after the switch was requested; that server is gone");
       } else if (f.kind() == Finding.Kind.INJECTED && dir == Direction.SERVERBOUND
           && epoch > 0 && isReplay(ctx, event, replay)) {
         out.tolerate(where + " " + f.packet() + ": the proxy replays the client's "
